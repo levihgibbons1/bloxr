@@ -4,10 +4,6 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Bloxr",
   description: "Roblox development, reimagined through AI.",
-  icons: {
-    icon: "/icon.png",
-    apple: "/icon.png",
-  },
 };
 
 export default function RootLayout({
