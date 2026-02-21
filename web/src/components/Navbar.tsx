@@ -40,8 +40,8 @@ const Navbar = () => {
         !atTop ? "bg-black/80 backdrop-blur-xl border-b border-white/5" : ""
       }`}
     >
-      <Link href="/" className="flex items-center gap-2.5">
-        <Image src="/icon.png" alt="Bloxr logo" width={28} height={28} className="rounded-md" />
+      <Link href="/" className="flex items-center gap-1">
+        <Image src="/logo.png" alt="Bloxr logo" width={44} height={44} className="object-contain" />
         <span className="text-white text-[28px] font-bold tracking-tight">Bloxr</span>
       </Link>
 
