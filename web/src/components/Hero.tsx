@@ -54,13 +54,13 @@ const TypingPrompt = () => {
       className="mt-14 w-full max-w-[600px]"
     >
       <div className="relative rounded-2xl border border-white/[0.08] bg-[#0A0A0F]/90 backdrop-blur-xl overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
-        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#4F8EF7]/20 to-transparent"></div>
+        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
 
         <div className="px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="w-[20px] h-[20px] rounded-full bg-gradient-to-br from-[#4F8EF7] to-[#7B61FF] flex items-center justify-center shrink-0">
+            <div className="w-[20px] h-[20px] rounded-full bg-gradient-to-br from-white/80 to-white/40 flex items-center justify-center shrink-0">
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="white" />
+                <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="black" />
               </svg>
             </div>
             <div className="flex-1 min-h-[24px] flex items-center">
@@ -68,7 +68,7 @@ const TypingPrompt = () => {
                 {displayText ? (
                   <span className="text-white/60">
                     {displayText}
-                    <span className="inline-block w-[2px] h-[16px] bg-[#4F8EF7] ml-[1px] align-middle animate-pulse-glow"></span>
+                    <span className="inline-block w-[2px] h-[16px] bg-white ml-[1px] align-middle animate-pulse-glow"></span>
                   </span>
                 ) : (
                   <span className="text-white/15">Describe what you want to build...</span>
@@ -77,13 +77,13 @@ const TypingPrompt = () => {
             </div>
             <button
               className={`shrink-0 w-[32px] h-[32px] rounded-lg flex items-center justify-center transition-all duration-200 ${
-                displayText ? "bg-[#4F8EF7]" : "bg-white/[0.06]"
+                displayText ? "bg-white" : "bg-white/[0.06]"
               }`}
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path
                   d="M7 12V2M7 2L3 6M7 2L11 6"
-                  stroke={displayText ? "white" : "rgba(255,255,255,0.2)"}
+                  stroke={displayText ? "black" : "rgba(255,255,255,0.2)"}
                   strokeWidth="1.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
