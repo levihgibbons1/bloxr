@@ -23,7 +23,6 @@ const Footer = () => {
               {[
                 { label: "How It Works", href: "/#how-it-works" },
                 { label: "Features", href: "/#features" },
-                { label: "Marketplace", href: "/#marketplace" },
                 { label: "Pricing", href: "/#pricing" },
               ].map((item) => (
                 <li key={item.label}>
@@ -43,7 +42,7 @@ const Footer = () => {
               Company
             </h4>
             <ul className="space-y-3">
-              {["About", "Blog", "Careers", "Contact"].map((item) => (
+              {["About", "Contact"].map((item) => (
                 <li key={item}>
                   <a
                     href="#"
@@ -71,6 +70,11 @@ const Footer = () => {
                   Privacy Policy
                 </Link>
               </li>
+              <li>
+                <Link href="/cookies" className="text-white/30 hover:text-white/60 text-[14px] transition-colors duration-200">
+                  Cookie Policy
+                </Link>
+              </li>
             </ul>
           </div>
         </div>
@@ -85,6 +89,9 @@ const Footer = () => {
             </Link>
             <Link href="/privacy" className="text-white/20 hover:text-white/40 text-[13px] transition-colors duration-200">
               Privacy
+            </Link>
+            <Link href="/cookies" className="text-white/20 hover:text-white/40 text-[13px] transition-colors duration-200">
+              Cookies
             </Link>
           </div>
         </div>
