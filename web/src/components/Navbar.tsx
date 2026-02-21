@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 const Navbar = () => {
   const [visible, setVisible] = useState(true);
@@ -39,9 +40,9 @@ const Navbar = () => {
         !atTop ? "bg-black/80 backdrop-blur-xl border-b border-white/5" : ""
       }`}
     >
-      <Link href="/" className="flex items-center">
+      <Link href="/" className="flex items-center gap-2.5">
+        <Image src="/icon.png" alt="Bloxr logo" width={28} height={28} className="rounded-md" />
         <span className="text-white text-[28px] font-bold tracking-tight">Bloxr</span>
-        <span className="text-[#4F8EF7] text-[28px] font-bold">.dev</span>
       </Link>
 
       <div className="hidden md:flex items-center space-x-[40px]">
