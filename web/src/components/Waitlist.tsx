@@ -59,12 +59,13 @@ const Waitlist = () => {
   };
 
   return (
-    <div className="relative w-full min-h-screen bg-black overflow-hidden noise-overlay">
-      <div className="absolute inset-0 grid-bg"></div>
+    <div className="relative w-full min-h-screen bg-black overflow-hidden">
+      {/* Static background — no animation for performance */}
+      <div className="absolute inset-0 grid-bg pointer-events-none" />
       <div className="absolute top-[20%] left-[15%] w-[500px] h-[500px] rounded-full blur-[150px] bg-[#4F8EF7]/[0.05] pointer-events-none" />
       <div className="absolute bottom-[15%] right-[10%] w-[400px] h-[400px] rounded-full blur-[130px] bg-[#7B61FF]/[0.04] pointer-events-none" />
 
-      {/* Floating particles */}
+      {/* Floating particles — GPU composited only */}
       <FloatingParticle delay={0} x="20%" y="60%" size={3} />
       <FloatingParticle delay={1.2} x="75%" y="70%" size={2} />
       <FloatingParticle delay={2.5} x="40%" y="80%" size={4} />

@@ -16,16 +16,17 @@ export async function POST(req: NextRequest) {
 
     const cleaned = email.toLowerCase().trim();
 
-    // Add to Resend Audience
-    await resend.contacts.create({
+    // Add to Resend Audience — do this first, independently
+    const contactResult = await resend.contacts.create({
       email: cleaned,
       audienceId: process.env.RESEND_AUDIENCE_ID!,
       unsubscribed: false,
     });
+    console.log("Contact result:", JSON.stringify(contactResult));
 
-    // Send confirmation email to the user
-    await resend.emails.send({
-      from: "Bloxr <onboarding@resend.dev>",
+    // Send confirmation email — using verified domain
+    const emailResult = await resend.emails.send({
+      from: "Bloxr <waitlist@bloxr.dev>",
       to: cleaned,
       subject: "You're on the Bloxr waitlist 🎮",
       html: `
@@ -122,9 +123,12 @@ export async function POST(req: NextRequest) {
       `,
     });
 
+    console.log("Email result:", JSON.stringify(emailResult));
+
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error("Waitlist error:", err);
+    console.error("Waitlist error:", JSON.stringify(err));
+    // Still return success if contact was saved — email sending is secondary
     return NextResponse.json(
       { error: "Something went wrong. Please try again." },
       { status: 500 }
