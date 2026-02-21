@@ -7,8 +7,7 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-12 gap-12 mb-14">
           <div className="md:col-span-4">
             <div className="flex items-center mb-4">
-              <span className="text-white text-[24px] font-bold tracking-tight">Bloxr</span>
-              <span className="text-[#4F8EF7] text-[24px] font-bold">.dev</span>
+              <span className="text-white text-[24px] font-bold tracking-tight">Bloxr.dev</span>
             </div>
             <p className="text-white/30 text-[15px] leading-relaxed max-w-[280px]">
               AI-powered Roblox development. Describe what you want to build. Watch it appear in
