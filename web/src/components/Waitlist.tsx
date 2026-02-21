@@ -17,8 +17,8 @@ const FloatingParticle = ({
   size: number;
 }) => (
   <motion.div
-    className="absolute rounded-full bg-[#4F8EF7]"
-    style={{ left: x, top: y, width: size, height: size }}
+    className="absolute rounded-full bg-[#4F8EF7] pointer-events-none"
+    style={{ left: x, top: y, width: size, height: size, willChange: "transform, opacity" }}
     initial={{ opacity: 0, scale: 0 }}
     animate={{
       opacity: [0, 0.3, 0.1, 0.3, 0],
@@ -61,34 +61,10 @@ const Waitlist = () => {
   return (
     <div className="relative w-full min-h-screen bg-black overflow-hidden noise-overlay">
       <div className="absolute inset-0 grid-bg"></div>
+      <div className="absolute top-[20%] left-[15%] w-[500px] h-[500px] rounded-full blur-[150px] bg-[#4F8EF7]/[0.05] pointer-events-none" />
+      <div className="absolute bottom-[15%] right-[10%] w-[400px] h-[400px] rounded-full blur-[130px] bg-[#7B61FF]/[0.04] pointer-events-none" />
 
-      <motion.div
-        className="absolute top-[20%] left-[15%] w-[500px] h-[500px] rounded-full blur-[150px]"
-        animate={{
-          background: [
-            "radial-gradient(circle, rgba(79,142,247,0.06) 0%, transparent 70%)",
-            "radial-gradient(circle, rgba(123,97,255,0.06) 0%, transparent 70%)",
-            "radial-gradient(circle, rgba(79,142,247,0.06) 0%, transparent 70%)",
-          ],
-          x: [0, 30, 0],
-          y: [0, -20, 0],
-        }}
-        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-      />
-      <motion.div
-        className="absolute bottom-[15%] right-[10%] w-[400px] h-[400px] rounded-full blur-[130px]"
-        animate={{
-          background: [
-            "radial-gradient(circle, rgba(123,97,255,0.04) 0%, transparent 70%)",
-            "radial-gradient(circle, rgba(79,142,247,0.05) 0%, transparent 70%)",
-            "radial-gradient(circle, rgba(123,97,255,0.04) 0%, transparent 70%)",
-          ],
-          x: [0, -20, 0],
-          y: [0, 15, 0],
-        }}
-        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-      />
-
+      {/* Floating particles */}
       <FloatingParticle delay={0} x="20%" y="60%" size={3} />
       <FloatingParticle delay={1.2} x="75%" y="70%" size={2} />
       <FloatingParticle delay={2.5} x="40%" y="80%" size={4} />

@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     // Send confirmation email to the user
     await resend.emails.send({
-      from: "Bloxr <waitlist@bloxr.dev>",
+      from: "Bloxr <onboarding@resend.dev>",
       to: cleaned,
       subject: "You're on the Bloxr waitlist 🎮",
       html: `
