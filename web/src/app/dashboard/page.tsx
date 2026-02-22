@@ -41,7 +41,7 @@ export default function Dashboard() {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId: user.id }),
+            body: JSON.stringify({ user_id: user.id }),
           }
         );
         if (res.ok) {
