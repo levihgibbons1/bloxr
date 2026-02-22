@@ -1,49 +1,84 @@
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
+import { supabase } from "../lib/supabase";
 
 const router = Router();
 
-interface QueueItem {
-  id: string;
-  payload: unknown;
-}
-
-const queue: QueueItem[] = [];
-
 // GET /api/sync/pending
-// Returns the next item in the queue without removing it, or null if empty.
-router.get("/pending", (_req: Request, res: Response) => {
-  res.json(queue[0] ?? null);
+// Returns the oldest pending item in the queue for the authenticated user, or null if empty.
+router.get("/pending", async (_req: Request, res: Response) => {
+  const userId: string = res.locals.userId;
+  const { data, error } = await supabase
+    .from("sync_queue")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    res.status(500).json({ error: "Failed to fetch pending item" });
+    return;
+  }
+  res.json(data ?? null);
 });
 
 // POST /api/sync/push
 // Adds a payload to the queue and returns the created item.
-router.post("/push", (req: Request, res: Response) => {
-  const item: QueueItem = {
-    id: crypto.randomUUID(),
-    payload: req.body,
-  };
-  queue.push(item);
-  res.json(item);
+router.post("/push", async (req: Request, res: Response) => {
+  const userId: string = res.locals.userId;
+  const id = crypto.randomUUID();
+
+  const { data, error } = await supabase
+    .from("sync_queue")
+    .insert({ id, user_id: userId, payload: req.body })
+    .select()
+    .single();
+
+  if (error) {
+    res.status(500).json({ error: "Failed to push item" });
+    return;
+  }
+  res.json(data);
 });
 
 // POST /api/sync/confirm
 // Removes the item with the given id from the queue.
-router.post("/confirm", (req: Request, res: Response) => {
+router.post("/confirm", async (req: Request, res: Response) => {
   const { id } = req.body as { id?: string };
-  const index = queue.findIndex((item) => item.id === id);
-  if (index === -1) {
+  if (!id) {
+    res.status(400).json({ error: "id is required" });
+    return;
+  }
+
+  const { error, count } = await supabase
+    .from("sync_queue")
+    .delete({ count: "exact" })
+    .eq("id", id);
+
+  if (error) {
+    res.status(500).json({ error: "Failed to confirm item" });
+    return;
+  }
+  if (count === 0) {
     res.status(404).json({ error: "Item not found" });
     return;
   }
-  queue.splice(index, 1);
   res.json({ ok: true });
 });
 
 // POST /api/sync/error
-// Logs the error payload to the console.
-router.post("/error", (req: Request, res: Response) => {
+// Logs the error payload to the console and marks the item as errored.
+router.post("/error", async (req: Request, res: Response) => {
   console.error("[sync/error]", req.body);
+  const { id } = req.body as { id?: string };
+  if (id) {
+    await supabase
+      .from("sync_queue")
+      .update({ status: "error" })
+      .eq("id", id);
+  }
   res.json({ ok: true });
 });
 

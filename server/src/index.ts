@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pg from "pg";
 import syncRouter from "./routes/sync";
+import authRouter from "./routes/auth";
+import { requireSession } from "./middleware/auth";
 
 dotenv.config();
 
@@ -11,7 +13,8 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-app.use("/api/sync", syncRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/sync", requireSession, syncRouter);
 
 // PostgreSQL pool (only connects when DATABASE_URL is set)
 const pool = process.env.DATABASE_URL
