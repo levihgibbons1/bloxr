@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [input, setInput] = useState("");
   const [syncToken, setSyncToken] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const supabase = createClient();
@@ -79,6 +80,13 @@ export default function Dashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
+  };
+
+  const handleCopyToken = async () => {
+    if (!syncToken) return;
+    await navigator.clipboard.writeText(syncToken);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const displayName = user?.email?.split("@")[0] ?? "there";
@@ -144,14 +152,50 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Sync token indicator */}
+          {/* Studio Token */}
           {!tokenLoading && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.01] p-3">
-              <p className="text-[11px] uppercase tracking-widest text-white/20 font-medium mb-1.5">Session</p>
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-col gap-3">
+              <div>
+                <p className="text-[12px] uppercase tracking-widest text-white/30 font-medium mb-0.5">
+                  Your Studio Token
+                </p>
+                <p className="text-[11px] text-white/30 leading-[1.6]">
+                  Copy this token and paste it into the Bloxr plugin in Roblox Studio.
+                </p>
+              </div>
               {syncToken ? (
-                <p className="text-[11px] text-white/20 font-mono truncate">{syncToken.slice(0, 20)}…</p>
+                <>
+                  <div className="rounded-lg bg-black/60 border border-white/[0.07] px-3 py-2.5 font-mono text-[11px] text-[#4F8EF7] break-all leading-[1.6] select-all">
+                    {syncToken}
+                  </div>
+                  <button
+                    onClick={handleCopyToken}
+                    className={`w-full flex items-center justify-center gap-2 rounded-full py-[9px] text-[13px] font-semibold transition-all duration-200 ${
+                      copied
+                        ? "border border-[#10B981]/30 text-[#10B981]"
+                        : "border border-white/10 text-white/50 hover:border-white/20 hover:text-white/80 active:scale-[0.97]"
+                    }`}
+                  >
+                    {copied ? (
+                      <>
+                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                          <path d="M2 7L5.5 10.5L12 3.5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                          <rect x="4.5" y="4.5" width="7" height="7" rx="1.25" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M2 9.5V2.5A.5.5 0 0 1 2.5 2h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                        Copy Token
+                      </>
+                    )}
+                  </button>
+                </>
               ) : (
-                <p className="text-[11px] text-white/15">No token — server offline</p>
+                <p className="text-[11px] text-white/20">No token — server offline</p>
               )}
             </div>
           )}
