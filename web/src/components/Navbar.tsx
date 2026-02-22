@@ -61,14 +61,20 @@ const Navbar = () => {
         ))}
       </div>
 
-      <Link
-        href="/waitlist"
-        className="rounded-full border border-white/20 hover:bg-white hover:border-white px-[28px] py-[10px] transition-all duration-300"
-      >
-        <span className="text-white hover:text-black text-[15px] font-medium">
-          Join Waitlist
-        </span>
-      </Link>
+      <div className="flex items-center gap-3">
+        <Link
+          href="/login"
+          className="rounded-full border border-white/20 hover:bg-white/[0.05] px-[20px] py-[9px] transition-all duration-300"
+        >
+          <span className="text-white/70 hover:text-white text-[15px] font-medium">Sign in</span>
+        </Link>
+        <Link
+          href="/signup"
+          className="rounded-full bg-white hover:shadow-[0_0_20px_rgba(79,142,247,0.15)] px-[20px] py-[9px] transition-all duration-200 active:scale-[0.97] inline-block"
+        >
+          <span className="text-black text-[15px] font-semibold">Create Account</span>
+        </Link>
+      </div>
     </motion.nav>
   );
 };
