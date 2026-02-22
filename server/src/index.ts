@@ -1,12 +1,13 @@
+import path from 'path';
+import dotenv from 'dotenv';
+dotenv.config({ path: path.join(process.cwd(), '.env') });
+console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? 'loaded' : 'MISSING');
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import pg from "pg";
 import syncRouter from "./routes/sync";
 import authRouter from "./routes/auth";
 import { requireSession } from "./middleware/auth";
-
-dotenv.config({ path: require('path').resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
