@@ -1,11 +1,13 @@
+import dynamic from "next/dynamic";
 import Hero from "@/components/Hero";
-import Problem from "@/components/Problem";
-import HowItWorks from "@/components/HowItWorks";
-import Features from "@/components/Features";
-import Marketplace from "@/components/Marketplace";
-import Pricing from "@/components/Pricing";
-import CTA from "@/components/CTA";
-import Footer from "@/components/Footer";
+
+const Problem = dynamic(() => import("@/components/Problem"));
+const HowItWorks = dynamic(() => import("@/components/HowItWorks"));
+const Features = dynamic(() => import("@/components/Features"));
+const Marketplace = dynamic(() => import("@/components/Marketplace"));
+const Pricing = dynamic(() => import("@/components/Pricing"));
+const CTA = dynamic(() => import("@/components/CTA"));
+const Footer = dynamic(() => import("@/components/Footer"));
 
 export default function Home() {
   return (

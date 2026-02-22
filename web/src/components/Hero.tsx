@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Navbar from "./Navbar";
 
@@ -98,14 +98,28 @@ const TypingPrompt = () => {
 };
 
 const Hero = () => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    // Defer video load until after initial paint so it doesn't block FCP
+    const timer = setTimeout(() => {
+      video.load();
+      video.play().catch(() => {});
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="relative w-full min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center noise-overlay">
       <div className="absolute inset-0 z-0">
         <video
-          autoPlay
+          ref={videoRef}
           loop
           muted
           playsInline
+          preload="none"
           className="w-full h-full object-cover opacity-60"
         >
           <source
@@ -124,26 +138,27 @@ const Hero = () => {
       <Navbar />
 
       <div className="relative z-10 flex flex-col items-center w-full px-6 text-center pt-[80px]">
+        {/* Badge — truncated on mobile to prevent overflow */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="flex items-center space-x-3 border border-white/10 rounded-full px-5 py-2.5 bg-white/[0.03] backdrop-blur-sm"
+          className="flex items-center gap-3 border border-white/10 rounded-full px-4 sm:px-5 py-2.5 bg-white/[0.03] backdrop-blur-sm"
         >
-          <div className="relative flex items-center justify-center w-2 h-2">
+          <div className="relative flex items-center justify-center w-2 h-2 shrink-0">
             <div className="absolute w-2 h-2 bg-[#4F8EF7] rounded-full"></div>
             <div className="absolute w-4 h-4 bg-[#4F8EF7]/20 rounded-full animate-ping"></div>
           </div>
-          <span className="text-white/50 text-[14px] font-medium">Now in early access</span>
-          <span className="text-white/10">|</span>
-          <span className="text-white text-[14px] font-medium">Start building for free</span>
+          <span className="text-white/50 text-[13px] sm:text-[14px] font-medium whitespace-nowrap">Now in early access</span>
+          <span className="hidden sm:inline text-white/10">|</span>
+          <span className="hidden sm:inline text-white text-[14px] font-medium whitespace-nowrap">Start building for free</span>
         </motion.div>
 
         <motion.h1
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="mt-10 text-[44px] md:text-[76px] font-medium leading-[1.05] tracking-[-2.5px] max-w-[860px] pb-1"
+          className="mt-8 sm:mt-10 text-[38px] sm:text-[44px] md:text-[76px] font-medium leading-[1.05] tracking-[-1.5px] sm:tracking-[-2.5px] max-w-[860px] pb-1"
           style={{
             backgroundImage: "linear-gradient(180deg, #FFFFFF 20%, rgba(255, 255, 255, 0.4) 100%)",
             WebkitBackgroundClip: "text",
@@ -157,7 +172,7 @@ const Hero = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="mt-7 text-[18px] md:text-[20px] font-normal text-white/45 max-w-[540px] leading-[1.6]"
+          className="mt-6 sm:mt-7 text-[16px] sm:text-[18px] md:text-[20px] font-normal text-white/45 max-w-[540px] leading-[1.6]"
         >
           Describe what you want to build. Watch it appear in Roblox Studio in real time. No Lua required.
         </motion.p>
@@ -166,11 +181,11 @@ const Hero = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.35 }}
-          className="mt-10 flex flex-col sm:flex-row items-center gap-4"
+          className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full sm:w-auto"
         >
           <Link
             href="/waitlist"
-            className="group relative bg-white rounded-full px-[36px] py-[14px] transition-all duration-200 hover:shadow-[0_0_30px_rgba(79,142,247,0.15)] active:scale-[0.97] inline-block"
+            className="w-full sm:w-auto group relative bg-white rounded-full px-[36px] py-[14px] text-center transition-all duration-200 hover:shadow-[0_0_30px_rgba(79,142,247,0.15)] active:scale-[0.97] inline-block"
           >
             <span className="text-black text-[16px] font-semibold">Get Early Access</span>
           </Link>
@@ -195,7 +210,7 @@ const Hero = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.45 }}
-          className="mt-5 text-[14px] text-white/25 tracking-wide"
+          className="mt-5 text-[13px] sm:text-[14px] text-white/25 tracking-wide"
         >
           Free forever / Pro plans for power users / No credit card to start
         </motion.p>
