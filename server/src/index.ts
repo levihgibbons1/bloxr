@@ -12,7 +12,18 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({
-  origin: ['https://www.bloxr.dev', 'https://bloxr.dev', 'http://localhost:3000'],
+  origin: function(origin, callback) {
+    const allowed = [
+      'https://www.bloxr.dev',
+      'https://bloxr.dev',
+      'http://localhost:3000'
+    ];
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
