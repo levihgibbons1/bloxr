@@ -103,12 +103,41 @@ const Hero = () => {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    const isMobile = window.innerWidth < 768;
+    const MOBILE_LOOP_DURATION = 5; // seconds — seek back to 0 to limit buffering
+
+    const handleTimeUpdate = () => {
+      if (video.currentTime >= MOBILE_LOOP_DURATION) {
+        video.currentTime = 0;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        video.pause();
+      } else {
+        video.play().catch(() => {});
+      }
+    };
+
     // Defer video load until after initial paint so it doesn't block FCP
     const timer = setTimeout(() => {
       video.load();
+      if (isMobile) {
+        video.playbackRate = 0.75;
+        video.addEventListener("timeupdate", handleTimeUpdate);
+      }
       video.play().catch(() => {});
     }, 0);
-    return () => clearTimeout(timer);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearTimeout(timer);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   return (
