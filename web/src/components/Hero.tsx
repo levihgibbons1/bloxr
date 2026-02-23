@@ -99,6 +99,7 @@ const TypingPrompt = () => {
 
 const Hero = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoReady, setVideoReady] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -149,7 +150,8 @@ const Hero = () => {
           muted
           playsInline
           preload="none"
-          className="w-full h-full object-cover opacity-60"
+          onCanPlay={() => setVideoReady(true)}
+          className={`w-full h-full object-cover transition-opacity duration-1000 ${videoReady ? "opacity-60" : "opacity-0"}`}
         >
           <source
             src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260217_030345_246c0224-10a4-422c-b324-070b7c0eceda.mp4"
