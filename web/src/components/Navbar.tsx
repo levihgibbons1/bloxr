@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { createClient } from "@/lib/supabase";
 
 const navLinks = [
   { label: "How It Works", href: "/#how-it-works" },
@@ -15,7 +16,23 @@ const Navbar = () => {
   const [visible, setVisible] = useState(true);
   const [atTop, setAtTop] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -76,27 +93,38 @@ const Navbar = () => {
 
         {/* Desktop buttons */}
         <div className="hidden md:flex items-center gap-3">
-          <Link
-            href="/login"
-            className="rounded-full border border-white/20 hover:bg-white/[0.05] px-[20px] py-[9px] transition-all duration-300"
-          >
-            <span className="text-white/70 hover:text-white text-[15px] font-medium">Sign in</span>
-          </Link>
-          <Link
-            href="/signup"
-            className="rounded-full bg-white hover:shadow-[0_0_20px_rgba(79,142,247,0.15)] px-[20px] py-[9px] transition-all duration-200 active:scale-[0.97] inline-block"
-          >
-            <span className="text-black text-[15px] font-semibold">Create Account</span>
-          </Link>
+          {isLoggedIn ? (
+            <Link
+              href="/dashboard"
+              className="rounded-full bg-white hover:shadow-[0_0_20px_rgba(79,142,247,0.15)] px-[20px] py-[9px] transition-all duration-200 active:scale-[0.97] inline-block"
+            >
+              <span className="text-black text-[15px] font-semibold">Dashboard</span>
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="rounded-full border border-white/20 hover:bg-white/[0.05] px-[20px] py-[9px] transition-all duration-300"
+              >
+                <span className="text-white/70 hover:text-white text-[15px] font-medium">Sign in</span>
+              </Link>
+              <Link
+                href="/signup"
+                className="rounded-full bg-white hover:shadow-[0_0_20px_rgba(79,142,247,0.15)] px-[20px] py-[9px] transition-all duration-200 active:scale-[0.97] inline-block"
+              >
+                <span className="text-black text-[15px] font-semibold">Create Account</span>
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile: single CTA + hamburger */}
         <div className="flex md:hidden items-center gap-2.5">
           <Link
-            href="/signup"
+            href={isLoggedIn ? "/dashboard" : "/signup"}
             className="rounded-full bg-white px-4 py-[8px] transition-all duration-200 active:scale-[0.97]"
           >
-            <span className="text-black text-[13px] font-semibold">Get Started</span>
+            <span className="text-black text-[13px] font-semibold">{isLoggedIn ? "Dashboard" : "Get Started"}</span>
           </Link>
           <button
             onClick={() => setMenuOpen((o) => !o)}
@@ -143,13 +171,15 @@ const Navbar = () => {
                   {item.label}
                 </Link>
               ))}
-              <Link
-                href="/login"
-                onClick={() => setMenuOpen(false)}
-                className="text-white/50 hover:text-white text-[16px] font-medium pt-3.5 transition-colors duration-200"
-              >
-                Sign in
-              </Link>
+              {!isLoggedIn && (
+                <Link
+                  href="/login"
+                  onClick={() => setMenuOpen(false)}
+                  className="text-white/50 hover:text-white text-[16px] font-medium pt-3.5 transition-colors duration-200"
+                >
+                  Sign in
+                </Link>
+              )}
             </div>
           </motion.div>
         )}
