@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 
 const navLinks = [
   { label: "How It Works", href: "/#how-it-works" },
@@ -23,11 +24,11 @@ const Navbar = () => {
     const supabase = createClient();
     if (!supabase) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsLoggedIn(!!session);
+    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
+      setIsLoggedIn(!!data.session);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session: Session | null) => {
       setIsLoggedIn(!!session);
     });
 
