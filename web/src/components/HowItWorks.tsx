@@ -26,7 +26,7 @@ const steps = [
     number: "02",
     title: "Connect Studio",
     description:
-      "Click one button. Studio opens. The plugin installs itself silently in the background. No setup wizard, no config files.",
+      "Click one button. Studio opens. The plugin installs itself silently in the background. No setup wizard, no config files. The plugin is fully open source — you can read every line of code on GitHub before installing.",
     visual: (
       <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
         <path d="M8 24H20M28 24H40" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

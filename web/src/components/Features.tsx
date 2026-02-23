@@ -96,6 +96,22 @@ const features = [
     ),
   },
   {
+    title: "Open source plugin",
+    description:
+      "The Studio plugin that connects Bloxr to your game is fully open source. Every line is public on GitHub. No black boxes, no hidden network calls. You can audit exactly what runs inside your Studio.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+        <path
+          d="M16 4C9.37258 4 4 9.37258 4 16C4 21.3005 7.40246 25.8096 12.1716 27.4513C12.7716 27.5603 13 27.1932 13 26.8766V24.6568C9.95507 25.3765 9.25 23.2284 9.25 23.2284C8.70402 21.794 7.92228 21.4301 7.92228 21.4301C6.84602 20.6918 8.0025 20.7074 8.0025 20.7074C9.19341 20.7913 9.81712 21.9344 9.81712 21.9344C10.875 23.8096 12.6026 23.2662 13.0499 22.9511C13.1551 22.1796 13.4638 21.6378 13.8034 21.3305C11.3959 21.0183 8.86364 20.0785 8.86364 15.8494C8.86364 14.4837 9.34091 13.3683 10.0682 12.5C9.94886 12.1882 9.52841 10.9136 10.1818 9.20455C10.1818 9.20455 11.1705 8.875 13 10.0682C13.7955 9.8422 14.6477 9.72869 15.5 9.72443C16.3523 9.72869 17.2045 9.8422 18 10.0682C19.8295 8.875 20.8182 9.20455 20.8182 9.20455C21.4716 10.9136 21.0511 12.1882 20.9318 12.5C21.6616 13.3683 22.1364 14.4837 22.1364 15.8494C22.1364 20.0908 19.5989 21.015 17.1841 21.3196C17.6023 21.6971 18 22.4368 18 23.5767V26.8766C18 27.196 18.2261 27.5657 18.8352 27.4496C23.6006 25.8064 27 21.2989 27 16C27 9.37258 21.6274 4 15 4H16Z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     title: "UI component library",
     description:
       "A curated library of 100+ beautiful, functional UI components. Shop GUIs, health bars, leaderboards, notification systems. Each one arrives pre-wired and ready to use in your game.",
