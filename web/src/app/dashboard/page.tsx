@@ -10,7 +10,8 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
 
-type Message = { role: "user" | "ai"; text: string };
+type Message = { role: "user" | "ai"; text: string; streaming?: boolean };
+type ConversationMessage = { role: "user" | "assistant"; content: string };
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null);
@@ -20,6 +21,9 @@ export default function Dashboard() {
   const [syncToken, setSyncToken] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [codePushed, setCodePushed] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const supabase = createClient();
@@ -65,10 +69,110 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    setMessages((prev) => [...prev, { role: "user", text: input.trim() }]);
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || isStreaming) return;
     setInput("");
+    setCodePushed(false);
+
+    const userMessage: Message = { role: "user", text };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Append a blank streaming AI message
+    setMessages((prev) => [...prev, { role: "ai", text: "", streaming: true }]);
+    setIsStreaming(true);
+
+    const token = localStorage.getItem("bloxr_sync_token");
+    let fullText = "";
+
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SERVER_URL}/api/chat`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ message: text, conversationHistory }),
+        }
+      );
+
+      if (!res.ok || !res.body) {
+        throw new Error(`Server error: ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6).trim();
+          if (payload === "[DONE]") break;
+
+          try {
+            const json = JSON.parse(payload) as {
+              delta?: string;
+              codePushed?: boolean;
+              error?: string;
+            };
+
+            if (json.error) throw new Error(json.error);
+
+            if (json.codePushed) {
+              setCodePushed(true);
+            }
+
+            if (json.delta) {
+              fullText += json.delta;
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  role: "ai",
+                  text: fullText,
+                  streaming: true,
+                };
+                return updated;
+              });
+            }
+          } catch {
+            // Malformed SSE chunk — skip
+          }
+        }
+      }
+    } catch (err) {
+      const errText = err instanceof Error ? err.message : "Something went wrong.";
+      fullText = errText;
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "ai", text: errText };
+        return updated;
+      });
+    } finally {
+      // Mark streaming done on the last message
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "ai", text: fullText };
+        return updated;
+      });
+      setIsStreaming(false);
+
+      // Update conversation history for next turn
+      setConversationHistory((prev) => [
+        ...prev,
+        { role: "user", content: text },
+        { role: "assistant", content: fullText },
+      ]);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -268,9 +372,9 @@ export default function Dashboard() {
                 />
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() || isStreaming}
                   className={`shrink-0 w-[32px] h-[32px] rounded-lg flex items-center justify-center transition-all duration-200 ${
-                    input.trim()
+                    input.trim() && !isStreaming
                       ? "bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.2)] active:scale-[0.92]"
                       : "bg-white/[0.06]"
                   }`}
@@ -278,7 +382,7 @@ export default function Dashboard() {
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path
                       d="M7 12V2M7 2L3 6M7 2L11 6"
-                      stroke={input.trim() ? "black" : "rgba(255,255,255,0.2)"}
+                      stroke={input.trim() && !isStreaming ? "black" : "rgba(255,255,255,0.2)"}
                       strokeWidth="1.5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -288,8 +392,11 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-center text-[11px] text-white/15 mt-2">
-              AI responses coming soon — chat UI ready
-            </p>
+              {codePushed
+                ? "Pushing to Studio..."
+                : isStreaming
+                ? "Generating..."
+                : "Describe what to build — Bloxr writes and pushes the Luau code"}</p>
           </div>
         </main>
       </div>
