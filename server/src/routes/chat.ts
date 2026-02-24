@@ -73,9 +73,15 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    console.log("[chat] full response length:", fullText.length);
+    console.log("[chat] full response:\n", fullText);
+
     // After streaming, attempt to parse a JSON code block
     const jsonMatch = fullText.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
+    if (!jsonMatch) {
+      console.log("[chat] no JSON code block found in response — skipping sync_queue insert");
+    } else {
+      console.log("[chat] JSON block found:", jsonMatch[1].trim());
       try {
         const parsed = JSON.parse(jsonMatch[1].trim()) as {
           scriptType: string;
@@ -83,26 +89,33 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
           name: string;
           code: string;
         };
+        console.log("[chat] parsed OK — scriptType:", parsed.scriptType, "name:", parsed.name, "targetService:", parsed.targetService);
 
         // Push to sync_queue
         const id = crypto.randomUUID();
+        const payload = {
+          type: "script",
+          scriptType: parsed.scriptType,
+          targetService: parsed.targetService,
+          name: parsed.name,
+          code: parsed.code,
+        };
+        console.log("[chat] inserting into sync_queue — id:", id, "userId:", userId, "payload:", JSON.stringify(payload));
+
         const { error } = await supabase.from("sync_queue").insert({
           id,
           user_id: userId,
-          payload: {
-            type: "script",
-            scriptType: parsed.scriptType,
-            targetService: parsed.targetService,
-            name: parsed.name,
-            code: parsed.code,
-          },
+          payload,
         });
 
-        if (!error) {
+        if (error) {
+          console.error("[chat] sync_queue insert FAILED:", error.message, error);
+        } else {
+          console.log("[chat] sync_queue insert succeeded — id:", id);
           res.write(`data: ${JSON.stringify({ codePushed: true })}\n\n`);
         }
-      } catch {
-        // JSON parse failed — not a valid code block, skip push
+      } catch (parseErr) {
+        console.error("[chat] JSON parse failed:", parseErr, "\nRaw block:", jsonMatch[1].trim());
       }
     }
 
