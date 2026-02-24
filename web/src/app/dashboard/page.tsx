@@ -9,9 +9,113 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-type Message = { role: "user" | "ai"; text: string; streaming?: boolean };
+type ScriptInfo = {
+  name: string;
+  scriptType: string;
+  targetService: string;
+  code: string;
+};
+
+type Message = {
+  role: "user" | "ai";
+  text: string;
+  streaming?: boolean;
+  codePushed?: boolean;
+  scriptInfo?: ScriptInfo;
+};
+
 type ConversationMessage = { role: "user" | "assistant"; content: string };
+
+function ThinkingDots() {
+  return (
+    <div className="flex items-center gap-2 px-4 py-3 text-[13px] text-white/40">
+      <span>Bloxr is thinking</span>
+      <span className="inline-flex items-end gap-[3px]">
+        <span
+          className="w-[5px] h-[5px] rounded-full bg-white/30"
+          style={{ animation: "thinking 1.2s ease-in-out 0s infinite" }}
+        />
+        <span
+          className="w-[5px] h-[5px] rounded-full bg-white/30"
+          style={{ animation: "thinking 1.2s ease-in-out 0.2s infinite" }}
+        />
+        <span
+          className="w-[5px] h-[5px] rounded-full bg-white/30"
+          style={{ animation: "thinking 1.2s ease-in-out 0.4s infinite" }}
+        />
+      </span>
+    </div>
+  );
+}
+
+function AIMessageContent({ msg }: { msg: Message }) {
+  if (msg.streaming && !msg.text) {
+    return <ThinkingDots />;
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {msg.text && (
+        <p className="text-[14px] leading-[1.7] text-white/75 whitespace-pre-wrap">
+          {msg.text}
+        </p>
+      )}
+
+      {msg.scriptInfo && (
+        <div className="rounded-xl overflow-hidden border border-white/[0.08]">
+          {/* Code block header */}
+          <div className="flex items-center justify-between px-4 py-2 bg-white/[0.03] border-b border-white/[0.06]">
+            <span className="text-[11px] font-mono text-white/40">
+              {msg.scriptInfo.name}.luau
+            </span>
+            <span className="text-[11px] text-white/25">
+              {msg.scriptInfo.scriptType}
+            </span>
+          </div>
+          <SyntaxHighlighter
+            language="lua"
+            style={oneDark}
+            customStyle={{ margin: 0, borderRadius: 0, fontSize: 12, lineHeight: "1.6" }}
+            wrapLongLines
+          >
+            {msg.scriptInfo.code}
+          </SyntaxHighlighter>
+        </div>
+      )}
+
+      {msg.scriptInfo && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Script info card */}
+          <div className="flex items-center gap-1.5 text-[12px] text-white/40 bg-white/[0.03] rounded-lg px-3 py-1.5 border border-white/[0.06]">
+            <span>📄</span>
+            <span className="font-mono">{msg.scriptInfo.name}</span>
+            <span className="text-white/20 mx-0.5">→</span>
+            <span>{msg.scriptInfo.targetService}</span>
+          </div>
+
+          {/* Pushed to Studio badge */}
+          {msg.codePushed && (
+            <div className="flex items-center gap-1.5 text-[12px] text-[#10B981] bg-[#10B981]/[0.08] rounded-lg px-3 py-1.5 border border-[#10B981]/20">
+              <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M2 7L5.5 10.5L12 3.5"
+                  stroke="#10B981"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Pushed to Studio
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null);
@@ -22,9 +126,9 @@ export default function Dashboard() {
   const [tokenLoading, setTokenLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [codePushed, setCodePushed] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
   const supabase = createClient();
 
@@ -69,11 +173,18 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput("");
-    setCodePushed(false);
 
     const userMessage: Message = { role: "user", text };
     setMessages((prev) => [...prev, userMessage]);
@@ -129,16 +240,26 @@ export default function Dashboard() {
             if (json.error) throw new Error(json.error);
 
             if (json.codePushed) {
-              setCodePushed(true);
+              // Mark codePushed on the last AI message
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  codePushed: true,
+                };
+                return updated;
+              });
             }
 
             if (json.delta) {
               fullText += json.delta;
+              // Hide the JSON fence while streaming
+              const displayText = fullText.replace(/```json[\s\S]*$/, "").trimEnd();
               setMessages((prev) => {
                 const updated = [...prev];
                 updated[updated.length - 1] = {
                   role: "ai",
-                  text: fullText,
+                  text: displayText,
                   streaming: true,
                 };
                 return updated;
@@ -158,15 +279,41 @@ export default function Dashboard() {
         return updated;
       });
     } finally {
-      // Mark streaming done on the last message
+      // Parse JSON block from full response and build final message
+      const jsonMatch = fullText.match(/```json\s*([\s\S]*?)```/);
+      let scriptInfo: ScriptInfo | undefined;
+      let displayText = fullText;
+
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1].trim()) as ScriptInfo;
+          scriptInfo = {
+            name: parsed.name,
+            scriptType: parsed.scriptType,
+            targetService: parsed.targetService,
+            code: parsed.code,
+          };
+          displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
+        } catch {
+          // Malformed JSON block — keep full text as-is
+        }
+      }
+
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "ai", text: fullText };
+        const last = updated[updated.length - 1];
+        updated[updated.length - 1] = {
+          role: "ai",
+          text: displayText,
+          scriptInfo,
+          codePushed: last.codePushed,
+        };
         return updated;
       });
+
       setIsStreaming(false);
 
-      // Update conversation history for next turn
+      // Update conversation history for next turn (use raw text for context)
       setConversationHistory((prev) => [
         ...prev,
         { role: "user", content: text },
@@ -199,7 +346,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-xl sticky top-0 z-20">
+      <header className="flex items-center justify-between px-5 md:px-8 py-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-xl sticky top-0 z-20">
         <Link href="/" className="flex items-center gap-1">
           <Image src="/logo.png" alt="Bloxr" width={34} height={34} className="object-contain" />
           <span className="text-white text-[22px] font-bold tracking-tight">Bloxr</span>
@@ -217,8 +364,8 @@ export default function Dashboard() {
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 65px)" }}>
-        {/* Sidebar */}
-        <aside className="w-[260px] shrink-0 border-r border-white/[0.06] flex flex-col p-5 gap-5 overflow-y-auto">
+        {/* Sidebar — hidden on mobile */}
+        <aside className="hidden md:flex w-[260px] shrink-0 border-r border-white/[0.06] flex-col p-5 gap-5 overflow-y-auto">
           {/* Welcome */}
           <div>
             <p className="text-[12px] uppercase tracking-widest text-white/20 font-medium mb-1">Dashboard</p>
@@ -309,7 +456,7 @@ export default function Dashboard() {
         {/* Chat area */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-3">
+          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 flex flex-col gap-4">
             {messages.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
@@ -338,15 +485,15 @@ export default function Dashboard() {
                   transition={{ duration: 0.2 }}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <div
-                    className={`max-w-[72%] rounded-2xl px-4 py-3 text-[14px] leading-[1.65] ${
-                      msg.role === "user"
-                        ? "bg-[#4F8EF7] text-white rounded-br-sm"
-                        : "bg-white/[0.04] border border-white/[0.07] text-white/75 rounded-bl-sm"
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
+                  {msg.role === "user" ? (
+                    <div className="max-w-[85%] md:max-w-[72%] rounded-2xl rounded-br-sm px-4 py-3 bg-[#4F8EF7] text-white text-[14px] leading-[1.65] whitespace-pre-wrap">
+                      {msg.text}
+                    </div>
+                  ) : (
+                    <div className="max-w-[85%] md:max-w-[80%] rounded-2xl rounded-bl-sm px-4 py-3 bg-white/[0.04] border border-white/[0.07]">
+                      <AIMessageContent msg={msg} />
+                    </div>
+                  )}
                 </motion.div>
               ))
             )}
@@ -354,26 +501,28 @@ export default function Dashboard() {
           </div>
 
           {/* Input */}
-          <div className="px-6 py-4 border-t border-white/[0.06]">
+          <div className="px-4 md:px-6 py-4 border-t border-white/[0.06] bg-black sticky bottom-0">
             <div className="relative rounded-2xl border border-white/[0.08] bg-[#0A0A0F]/90 backdrop-blur-xl overflow-hidden shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
               <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.1] to-transparent" />
-              <div className="flex items-center gap-3 px-5 py-4">
-                <div className="w-[20px] h-[20px] rounded-full bg-gradient-to-br from-white/70 to-white/30 flex items-center justify-center shrink-0">
+              <div className="flex items-end gap-3 px-5 py-4">
+                <div className="w-[20px] h-[20px] rounded-full bg-gradient-to-br from-white/70 to-white/30 flex items-center justify-center shrink-0 mb-[2px]">
                   <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
                     <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="black" />
                   </svg>
                 </div>
-                <input
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Describe what you want to build..."
-                  className="flex-1 bg-transparent text-[15px] text-white/70 placeholder-white/20 outline-none"
+                  className="flex-1 bg-transparent text-[15px] text-white/70 placeholder-white/20 outline-none resize-none overflow-hidden leading-[1.6] max-h-[120px]"
                 />
                 <button
                   onClick={handleSend}
                   disabled={!input.trim() || isStreaming}
-                  className={`shrink-0 w-[32px] h-[32px] rounded-lg flex items-center justify-center transition-all duration-200 ${
+                  className={`shrink-0 w-[32px] h-[32px] rounded-lg flex items-center justify-center transition-all duration-200 mb-[1px] ${
                     input.trim() && !isStreaming
                       ? "bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.2)] active:scale-[0.92]"
                       : "bg-white/[0.06]"
@@ -392,11 +541,10 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-center text-[11px] text-white/15 mt-2">
-              {codePushed
-                ? "Pushing to Studio..."
-                : isStreaming
+              {isStreaming
                 ? "Generating..."
-                : "Describe what to build — Bloxr writes and pushes the Luau code"}</p>
+                : "Describe what to build — Bloxr writes and pushes the Luau code"}
+            </p>
           </div>
         </main>
       </div>
