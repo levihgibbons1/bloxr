@@ -90,7 +90,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
           id,
           user_id: userId,
           payload: {
-            type: "script",
             scriptType: parsed.scriptType,
             targetService: parsed.targetService,
             name: parsed.name,
