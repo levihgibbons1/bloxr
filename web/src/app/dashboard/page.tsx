@@ -196,6 +196,7 @@ export default function Dashboard() {
   const [renamingProjectName, setRenamingProjectName] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
 
   // ── Refs ──
   const activeChatIdRef = useRef<string | null>(null);
@@ -379,7 +380,7 @@ export default function Dashboard() {
     if (isNewChat) setNewChatProjectId(null);
 
     setMessages((prev) => [...prev, { role: "user", text }]);
-    setMessages((prev) => [...prev, { role: "ai", text: "", streaming: true }]);
+    setIsThinking(true);   // Bubble 1 — thinking
     setIsStreaming(true);
 
     // Create chat row on the first message
@@ -407,6 +408,7 @@ export default function Dashboard() {
 
     const token = localStorage.getItem("bloxr_sync_token");
     let fullText = "";
+    let hasFirstDelta = false;
 
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/api/chat`, {
@@ -469,14 +471,20 @@ export default function Dashboard() {
 
             if (json.delta) {
               fullText += json.delta;
+              if (!hasFirstDelta) {
+                hasFirstDelta = true;
+                setIsThinking(false);  // Bubble 1 exits
+                setMessages((prev) => [...prev, { role: "ai", text: "", streaming: true }]);  // Bubble 2 enters
+              }
               const displayText = fullText.replace(/```json[\s\S]*$/, "").trimEnd();
               setMessages((prev) => {
                 const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "ai",
-                  text: displayText,
-                  streaming: true,
-                };
+                for (let i = updated.length - 1; i >= 0; i--) {
+                  if (updated[i].role === "ai") {
+                    updated[i] = { role: "ai", text: displayText, streaming: true };
+                    break;
+                  }
+                }
                 return updated;
               });
             }
@@ -488,19 +496,26 @@ export default function Dashboard() {
     } catch (err) {
       const errText = err instanceof Error ? err.message : "Something went wrong.";
       fullText = errText;
-      setMessages((prev) => {
-        const updated = [...prev];
-        for (let i = updated.length - 1; i >= 0; i--) {
-          if (updated[i].role === "ai") {
-            updated[i] = { role: "ai", text: errText };
-            break;
+      // If no delta arrived yet, the AI bubble hasn't been added — add it now
+      if (!hasFirstDelta) {
+        setMessages((prev) => [...prev, { role: "ai", text: errText }]);
+      } else {
+        setMessages((prev) => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].role === "ai") {
+              updated[i] = { role: "ai", text: errText };
+              break;
+            }
           }
-        }
-        return updated;
-      });
+          return updated;
+        });
+      }
     } finally {
       const displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
       const chatId = activeChatIdRef.current;
+
+      setIsThinking(false);  // ensure thinking bubble is gone on error path
 
       // Capture the final messages list synchronously inside the setter
       let capturedFinalMessages: Message[] = [];
@@ -524,18 +539,21 @@ export default function Dashboard() {
         { role: "assistant", content: fullText },
       ]);
 
-      // Persist the updated messages to Supabase
+      // Persist only user+ai messages (status bubbles are ephemeral)
       if (chatId && supabase) {
         const now = new Date().toISOString();
+        const saveable = capturedFinalMessages.filter(
+          (m) => m.role === "user" || m.role === "ai"
+        );
         supabase
           .from("chats")
-          .update({ messages: capturedFinalMessages, updated_at: now })
+          .update({ messages: saveable, updated_at: now })
           .eq("id", chatId)
           .then(() => {
             setChats((prev) =>
               prev.map((c) =>
                 c.id === chatId
-                  ? { ...c, messages: capturedFinalMessages, updated_at: now }
+                  ? { ...c, messages: saveable, updated_at: now }
                   : c
               )
             );
@@ -594,7 +612,7 @@ export default function Dashboard() {
 
         {/* Logo */}
         <div className="flex items-center px-5 h-[60px] border-b border-white/[0.06]">
-          <Image src="/logo.png" alt="Bloxr" width={26} height={26} className="object-contain" />
+          <Image src="/logo.png" alt="Bloxr" width={40} height={40} className="object-contain" />
           <span className="ml-2 text-white text-[15px] font-bold tracking-tight">Bloxr</span>
         </div>
 
@@ -974,7 +992,7 @@ export default function Dashboard() {
             ) : (
               <motion.div
                 key="messages"
-                className="px-8 py-8 space-y-6 max-w-[820px] mx-auto w-full"
+                className="px-8 py-8 space-y-4 max-w-[820px] mx-auto w-full"
               >
                 <AnimatePresence initial={false}>
                   {messages.map((msg, i) => (
@@ -983,60 +1001,100 @@ export default function Dashboard() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2 }}
-                      className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
-                      {/* AI avatar */}
-                      {msg.role === "ai" && (
-                        <div className="w-7 h-7 rounded-lg bg-[#4F8EF7]/10 border border-[#4F8EF7]/20 flex items-center justify-center shrink-0 mt-0.5">
-                          <Image src="/logo.png" alt="Bloxr" width={16} height={16} className="object-contain" />
-                        </div>
-                      )}
-
-                      {/* User bubble */}
+                      {/* Bubble 2 — User */}
                       {msg.role === "user" && (
-                        <div className="max-w-[60%] bg-white text-black text-[14px] rounded-2xl rounded-tr-sm px-4 py-2.5 leading-relaxed font-medium whitespace-pre-wrap">
-                          {msg.text}
+                        <div className="flex justify-end">
+                          <div className="max-w-[60%] bg-white text-black text-[15px] rounded-2xl px-4 py-3 font-medium whitespace-pre-wrap leading-relaxed">
+                            {msg.text}
+                          </div>
                         </div>
                       )}
 
-                      {/* AI message */}
+                      {/* Bubble 2 — AI response */}
                       {msg.role === "ai" && (
-                        <div className="max-w-[640px] min-w-0">
-                          {msg.streaming && !msg.text ? (
-                            <TypingDots />
-                          ) : (
-                            renderMarkdown(msg.text)
-                          )}
+                        <div className="flex justify-start">
+                          <div className="max-w-[640px] min-w-0 rounded-2xl px-4 py-3 text-[15px]" style={{ background: "#1c1c20" }}>
+                            {msg.streaming && !msg.text ? (
+                              <TypingDots />
+                            ) : (
+                              renderMarkdown(msg.text)
+                            )}
+                          </div>
                         </div>
                       )}
 
-                      {/* Status — pushed */}
-                      {msg.role === "status" && msg.statusKind === "pushed" && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full text-[13px] font-medium"
-                          style={{ background: "#111", border: "1px solid rgba(16,185,129,0.2)" }}
-                        >
-                          <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 0.4 }}>
-                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                              <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </motion.div>
-                          <span className="text-[#10B981]">1 change pushed to Studio</span>
-                        </motion.div>
+                      {/* Bubble 3 — Working (building) */}
+                      {msg.role === "status" && msg.statusKind === "building" && (
+                        <div className="flex justify-start">
+                          <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: "#1c1c20" }}>
+                            <Image
+                              src="/logo.png" alt="Bloxr" width={28} height={28}
+                              className="animate-spin object-contain shrink-0"
+                              style={{ animationDuration: "1.5s" }}
+                            />
+                            <motion.span
+                              animate={{ opacity: [0.5, 1, 0.5] }}
+                              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                              className="text-[15px] text-white/70"
+                            >
+                              Working...
+                            </motion.span>
+                          </div>
+                        </div>
                       )}
 
-                      {/* Status — building */}
-                      {msg.role === "status" && msg.statusKind === "building" && (
-                        <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full text-[13px] text-white/40" style={{ background: "#111", border: "1px solid rgba(255,255,255,0.06)" }}>
-                          <TypingDots />
-                          <span>Building...</span>
+                      {/* Bubble 3 — Done (pushed) */}
+                      {msg.role === "status" && msg.statusKind === "pushed" && (
+                        <div className="flex justify-start">
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="rounded-2xl px-4 py-3 flex items-center gap-3"
+                            style={{ background: "#1c1c20" }}
+                          >
+                            <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ duration: 0.35 }}>
+                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </motion.div>
+                            <span className="text-[15px] text-[#10B981] font-medium">Done</span>
+                          </motion.div>
                         </div>
                       )}
                     </motion.div>
                   ))}
                 </AnimatePresence>
+
+                {/* Bubble 1 — Thinking (outside messages array, driven by isThinking state) */}
+                <AnimatePresence>
+                  {isThinking && (
+                    <motion.div
+                      key="thinking-bubble"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.18 }}
+                      className="flex justify-start"
+                    >
+                      <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: "#1c1c20" }}>
+                        <Image
+                          src="/logo.png" alt="Bloxr" width={28} height={28}
+                          className="animate-spin object-contain shrink-0"
+                          style={{ animationDuration: "1.5s" }}
+                        />
+                        <motion.span
+                          animate={{ opacity: [0.5, 1, 0.5] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                          className="text-[15px] text-white/70"
+                        >
+                          Thinking...
+                        </motion.span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <div ref={messagesEndRef} />
               </motion.div>
             )}
