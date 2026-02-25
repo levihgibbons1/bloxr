@@ -20,6 +20,24 @@ type Message = {
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
 
+type DbChat = {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  title: string;
+  messages: Message[];
+  created_at: string;
+  updated_at: string;
+};
+
+type DbProject = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const EXAMPLE_PROMPTS = [
@@ -154,6 +172,7 @@ function TypingDots() {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  // ── Core state ──
   const [user, setUser] = useState<User | null>(null);
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -165,11 +184,29 @@ export default function Dashboard() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
+
+  // ── Chats & projects state ──
+  const [chats, setChats] = useState<DbChat[]>([]);
+  const [projects, setProjects] = useState<DbProject[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [newChatProjectId, setNewChatProjectId] = useState<string | null>(null);
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renamingChatTitle, setRenamingChatTitle] = useState("");
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renamingProjectName, setRenamingProjectName] = useState("");
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+
+  // ── Refs ──
+  const activeChatIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
   const router = useRouter();
   const supabase = createClient();
+
+  // ── Init ────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const init = async () => {
@@ -178,6 +215,7 @@ export default function Dashboard() {
       if (!user) { router.push("/login"); return; }
       setUser(user);
 
+      // Fetch token
       try {
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_SERVER_URL}/api/auth/token`,
@@ -198,6 +236,27 @@ export default function Dashboard() {
       } finally {
         setTokenLoading(false);
       }
+
+      // Fetch projects
+      try {
+        const { data: projectsData } = await supabase
+          .from("projects")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+        if (projectsData) setProjects(projectsData as DbProject[]);
+      } catch { /* ignore */ }
+
+      // Fetch recent chats
+      try {
+        const { data: chatsData } = await supabase
+          .from("chats")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("updated_at", { ascending: false })
+          .limit(50);
+        if (chatsData) setChats(chatsData as DbChat[]);
+      } catch { /* ignore */ }
     };
     init();
   }, []);
@@ -213,14 +272,137 @@ export default function Dashboard() {
     el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }, [input]);
 
+  // Focus rename input when it becomes active
+  useEffect(() => {
+    if (renamingChatId || renamingProjectId) {
+      setTimeout(() => renameInputRef.current?.focus(), 0);
+    }
+  }, [renamingChatId, renamingProjectId]);
+
+  // ── Chat & project handlers ──────────────────────────────────────────────────
+
+  const startNewChat = useCallback((projectId: string | null = null) => {
+    setMessages([]);
+    setConversationHistory([]);
+    setActiveChatId(null);
+    activeChatIdRef.current = null;
+    setNewChatProjectId(projectId);
+    setRenamingChatId(null);
+  }, []);
+
+  const loadChat = useCallback((chat: DbChat) => {
+    setMessages(chat.messages);
+    setActiveChatId(chat.id);
+    activeChatIdRef.current = chat.id;
+    setRenamingChatId(null);
+    // Reconstruct conversation history from saved messages
+    const history: ConversationMessage[] = [];
+    for (const msg of chat.messages) {
+      if (msg.role === "user") history.push({ role: "user", content: msg.text });
+      else if (msg.role === "ai" && msg.text) history.push({ role: "assistant", content: msg.text });
+    }
+    setConversationHistory(history);
+  }, []);
+
+  const startRenameChat = useCallback((chat: DbChat, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingChatId(chat.id);
+    setRenamingChatTitle(chat.title);
+  }, []);
+
+  const commitRenameChat = useCallback(async () => {
+    if (!renamingChatId) return;
+    const title = renamingChatTitle.trim();
+    setRenamingChatId(null);
+    if (!title) return;
+    setChats((prev) => prev.map((c) => c.id === renamingChatId ? { ...c, title } : c));
+    if (supabase) {
+      await supabase.from("chats").update({ title }).eq("id", renamingChatId);
+    }
+  }, [renamingChatId, renamingChatTitle]);
+
+  const createProject = useCallback(async () => {
+    if (!user || !supabase) return;
+    const name = "New Project";
+    try {
+      const { data } = await supabase
+        .from("projects")
+        .insert({ user_id: user.id, name })
+        .select()
+        .single();
+      if (data) {
+        const project = data as DbProject;
+        setProjects((prev) => [project, ...prev]);
+        // Start renaming immediately
+        setRenamingProjectId(project.id);
+        setRenamingProjectName(name);
+      }
+    } catch { /* ignore */ }
+  }, [user]);
+
+  const startRenameProject = useCallback((project: DbProject, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingProjectId(project.id);
+    setRenamingProjectName(project.name);
+  }, []);
+
+  const commitRenameProject = useCallback(async () => {
+    if (!renamingProjectId) return;
+    const name = renamingProjectName.trim();
+    setRenamingProjectId(null);
+    if (!name) return;
+    setProjects((prev) => prev.map((p) => p.id === renamingProjectId ? { ...p, name } : p));
+    if (supabase) {
+      await supabase.from("projects").update({ name }).eq("id", renamingProjectId);
+    }
+  }, [renamingProjectId, renamingProjectName]);
+
+  const toggleProjectCollapse = useCallback((projectId: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  }, []);
+
+  // ── Main send handler ────────────────────────────────────────────────────────
+
   const handleSend = async (textOverride?: string) => {
     const text = (textOverride ?? input).trim();
     if (!text || isStreaming) return;
     setInput("");
 
+    const isNewChat = !activeChatIdRef.current && messages.length === 0;
+    const projectIdForNewChat = newChatProjectId;
+    if (isNewChat) setNewChatProjectId(null);
+
     setMessages((prev) => [...prev, { role: "user", text }]);
     setMessages((prev) => [...prev, { role: "ai", text: "", streaming: true }]);
     setIsStreaming(true);
+
+    // Create chat row on the first message
+    if (isNewChat && user && supabase) {
+      const title = text.slice(0, 40);
+      try {
+        const { data } = await supabase
+          .from("chats")
+          .insert({
+            user_id: user.id,
+            title,
+            messages: [{ role: "user", text }],
+            project_id: projectIdForNewChat,
+          })
+          .select()
+          .single();
+        if (data) {
+          const newChat = data as DbChat;
+          activeChatIdRef.current = newChat.id;
+          setActiveChatId(newChat.id);
+          setChats((prev) => [newChat, ...prev]);
+        }
+      } catch { /* chat creation failed — still run the conversation */ }
+    }
 
     const token = localStorage.getItem("bloxr_sync_token");
     let fullText = "";
@@ -317,7 +499,10 @@ export default function Dashboard() {
       });
     } finally {
       const displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
+      const chatId = activeChatIdRef.current;
 
+      // Capture the final messages list synchronously inside the setter
+      let capturedFinalMessages: Message[] = [];
       setMessages((prev) => {
         const updated = [...prev];
         for (let i = updated.length - 1; i >= 0; i--) {
@@ -326,6 +511,7 @@ export default function Dashboard() {
             break;
           }
         }
+        capturedFinalMessages = updated;
         return updated;
       });
 
@@ -336,6 +522,25 @@ export default function Dashboard() {
         { role: "user", content: text },
         { role: "assistant", content: fullText },
       ]);
+
+      // Persist the updated messages to Supabase
+      if (chatId && supabase) {
+        const now = new Date().toISOString();
+        supabase
+          .from("chats")
+          .update({ messages: capturedFinalMessages, updated_at: now })
+          .eq("id", chatId)
+          .then(() => {
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === chatId
+                  ? { ...c, messages: capturedFinalMessages, updated_at: now }
+                  : c
+              )
+            );
+          })
+          .catch(() => { /* ignore save errors */ });
+      }
     }
   };
 
@@ -368,9 +573,17 @@ export default function Dashboard() {
     setAttachments((prev) => prev.filter((_, idx) => idx !== i));
   }, []);
 
+  // ── Derived ─────────────────────────────────────────────────────────────────
+
   const maskedToken = syncToken
     ? syncToken.slice(0, 4) + "●".repeat(10) + syncToken.slice(-4)
     : null;
+
+  const activeChat = chats.find((c) => c.id === activeChatId) ?? null;
+
+  const unassignedChats = chats.filter((c) => !c.project_id);
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-screen w-full overflow-hidden" style={{ background: "#080808" }}>
@@ -384,10 +597,10 @@ export default function Dashboard() {
           <span className="ml-2 text-white text-[15px] font-bold tracking-tight">Bloxr</span>
         </div>
 
-        {/* New chat */}
+        {/* New Chat button */}
         <div className="px-3 pt-3">
           <button
-            onClick={() => setMessages([])}
+            onClick={() => startNewChat()}
             className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-white/[0.08] hover:border-white/[0.14] hover:bg-white/[0.03] text-white/50 hover:text-white/80 text-[13px] font-medium transition-all duration-200"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -398,10 +611,142 @@ export default function Dashboard() {
         </div>
 
         {/* Scrollable middle */}
-        <div className="flex-1 overflow-y-auto px-3 pt-5 flex flex-col gap-5">
+        <div className="flex-1 overflow-y-auto px-3 pt-4 flex flex-col min-h-0">
 
-          {/* Studio connection */}
-          <div>
+          {/* ── Chats & Projects ── */}
+          <div className="flex-1">
+            <div className="flex items-center justify-between px-1 mb-2">
+              <p className="text-[11px] text-white/25 font-semibold uppercase tracking-[0.1em]">Chats</p>
+              <button
+                onClick={createProject}
+                title="New project"
+                className="flex items-center gap-1 text-[11px] text-white/25 hover:text-white/60 transition-colors"
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                New Project
+              </button>
+            </div>
+
+            {/* Projects (with nested chats) */}
+            {projects.map((project) => {
+              const projectChats = chats.filter((c) => c.project_id === project.id);
+              const isCollapsed = collapsedProjects.has(project.id);
+              return (
+                <div key={project.id} className="mb-1">
+                  {/* Project header */}
+                  <div className="flex items-center gap-1 group rounded-xl hover:bg-white/[0.03] pr-1">
+                    <button
+                      onClick={() => toggleProjectCollapse(project.id)}
+                      className="flex items-center gap-1.5 flex-1 min-w-0 px-2 py-2"
+                    >
+                      <motion.svg
+                        width="10" height="10" viewBox="0 0 12 12" fill="none"
+                        animate={{ rotate: isCollapsed ? -90 : 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="shrink-0 text-white/25"
+                      >
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </motion.svg>
+                      {renamingProjectId === project.id ? (
+                        <input
+                          ref={renameInputRef}
+                          value={renamingProjectName}
+                          onChange={(e) => setRenamingProjectName(e.target.value)}
+                          onBlur={commitRenameProject}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRenameProject();
+                            if (e.key === "Escape") setRenamingProjectId(null);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 min-w-0 bg-transparent text-[13px] text-white outline-none border-b border-white/25"
+                        />
+                      ) : (
+                        <span className="flex-1 min-w-0 text-[13px] font-medium text-white/55 truncate text-left">
+                          {project.name}
+                        </span>
+                      )}
+                    </button>
+                    {/* Rename project icon */}
+                    <button
+                      onClick={(e) => startRenameProject(project, e)}
+                      className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-white/60 transition-all p-1 shrink-0"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                        <path d="M11 2l3 3-8 8H3v-3l8-8z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    {/* New chat in project */}
+                    <button
+                      onClick={() => startNewChat(project.id)}
+                      className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-white/60 transition-all p-1 shrink-0"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Chats nested under project */}
+                  {!isCollapsed && (
+                    <div className="ml-3 border-l border-white/[0.05] pl-2 space-y-0.5 mt-0.5">
+                      {projectChats.length === 0 ? (
+                        <p className="text-[11px] text-white/15 px-2 py-1">No chats yet</p>
+                      ) : (
+                        projectChats.map((chat) => (
+                          <ChatRow
+                            key={chat.id}
+                            chat={chat}
+                            isActive={activeChatId === chat.id}
+                            isRenaming={renamingChatId === chat.id}
+                            renameTitle={renamingChatTitle}
+                            renameInputRef={renamingChatId === chat.id ? renameInputRef : undefined}
+                            onLoad={() => loadChat(chat)}
+                            onStartRename={(e) => startRenameChat(chat, e)}
+                            onRenameChange={setRenamingChatTitle}
+                            onRenameCommit={commitRenameChat}
+                            onRenameCancel={() => setRenamingChatId(null)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Unassigned chats */}
+            {unassignedChats.length > 0 && (
+              <div className={`space-y-0.5 ${projects.length > 0 ? "mt-3" : ""}`}>
+                {projects.length > 0 && (
+                  <p className="text-[11px] text-white/15 px-1 mb-1.5">Other chats</p>
+                )}
+                {unassignedChats.map((chat) => (
+                  <ChatRow
+                    key={chat.id}
+                    chat={chat}
+                    isActive={activeChatId === chat.id}
+                    isRenaming={renamingChatId === chat.id}
+                    renameTitle={renamingChatTitle}
+                    renameInputRef={renamingChatId === chat.id ? renameInputRef : undefined}
+                    onLoad={() => loadChat(chat)}
+                    onStartRename={(e) => startRenameChat(chat, e)}
+                    onRenameChange={setRenamingChatTitle}
+                    onRenameCommit={commitRenameChat}
+                    onRenameCancel={() => setRenamingChatId(null)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {chats.length === 0 && projects.length === 0 && (
+              <p className="text-[11px] text-white/15 px-1 mt-1">No chats yet — send a message to start</p>
+            )}
+          </div>
+
+          {/* ── Studio section ── */}
+          <div className="border-t border-white/[0.06] pt-4 mt-4">
             <p className="text-[11px] text-white/25 font-semibold uppercase tracking-[0.1em] px-1 mb-3">Studio</p>
 
             <div className="flex items-center gap-2.5 px-1 mb-2">
@@ -425,9 +770,9 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* Token */}
+          {/* ── Token section ── */}
           {!tokenLoading && (
-            <div className="border-t border-white/[0.06] pt-5">
+            <div className="border-t border-white/[0.06] pt-4 mt-4 pb-3">
               <div className="flex items-center justify-between px-1 mb-2.5">
                 <p className="text-[11px] text-white/25 font-semibold uppercase tracking-[0.1em]">Studio Token</p>
                 <button
@@ -515,7 +860,9 @@ export default function Dashboard() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-6 h-[60px] border-b border-white/[0.06] shrink-0">
           <div>
-            <p className="text-white text-[14px] font-semibold">Chat</p>
+            <p className="text-white text-[14px] font-semibold truncate max-w-[400px]">
+              {activeChat ? activeChat.title : "Chat"}
+            </p>
             <p className="text-white/30 text-[12px]">Powered by Bloxr</p>
           </div>
 
@@ -627,7 +974,7 @@ export default function Dashboard() {
                         </div>
                       )}
 
-                      {/* Status bubble */}
+                      {/* Status — pushed */}
                       {msg.role === "status" && msg.statusKind === "pushed" && (
                         <motion.div
                           initial={{ opacity: 0, scale: 0.95 }}
@@ -644,6 +991,7 @@ export default function Dashboard() {
                         </motion.div>
                       )}
 
+                      {/* Status — building */}
                       {msg.role === "status" && msg.statusKind === "building" && (
                         <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full text-[13px] text-white/40" style={{ background: "#111", border: "1px solid rgba(255,255,255,0.06)" }}>
                           <TypingDots />
@@ -755,6 +1103,75 @@ export default function Dashboard() {
         </div>
 
       </div>
+    </div>
+  );
+}
+
+// ── ChatRow component ────────────────────────────────────────────────────────
+
+function ChatRow({
+  chat,
+  isActive,
+  isRenaming,
+  renameTitle,
+  renameInputRef,
+  onLoad,
+  onStartRename,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+}: {
+  chat: DbChat;
+  isActive: boolean;
+  isRenaming: boolean;
+  renameTitle: string;
+  renameInputRef?: React.RefObject<HTMLInputElement>;
+  onLoad: () => void;
+  onStartRename: (e: React.MouseEvent) => void;
+  onRenameChange: (v: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center group">
+      <button
+        onClick={onLoad}
+        onDoubleClick={onStartRename}
+        className={`flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all duration-150 ${
+          isActive
+            ? "bg-white/[0.06] text-white"
+            : "text-white/40 hover:text-white/70 hover:bg-white/[0.03]"
+        }`}
+      >
+        <div className={`w-1 h-1 rounded-full shrink-0 ${isActive ? "bg-[#4F8EF7]" : "bg-white/10"}`} />
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameTitle}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onBlur={onRenameCommit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onRenameCommit();
+              if (e.key === "Escape") onRenameCancel();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 bg-transparent text-[13px] text-white outline-none border-b border-white/25"
+          />
+        ) : (
+          <span className="flex-1 min-w-0 text-[13px] truncate">{chat.title}</span>
+        )}
+      </button>
+      {/* Edit icon */}
+      {!isRenaming && (
+        <button
+          onClick={onStartRename}
+          className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-white/60 transition-all p-1.5 shrink-0"
+        >
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+            <path d="M11 2l3 3-8 8H3v-3l8-8z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
