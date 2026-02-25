@@ -5,9 +5,8 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -21,6 +20,15 @@ type Message = {
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
 
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const EXAMPLE_PROMPTS = [
+  "Add a shop where players buy speed boosts with coins",
+  "Create a stamina bar that drains when sprinting",
+  "Make enemies patrol and chase players within 20 studs",
+  "Add a leaderboard showing top 10 kills",
+];
+
 // ── Markdown helpers ────────────────────────────────────────────────────────
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode {
@@ -31,7 +39,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode {
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     if (match[2] !== undefined)
-      parts.push(<strong key={`${keyPrefix}-${match.index}`} className="font-semibold text-white/90">{match[2]}</strong>);
+      parts.push(<strong key={`${keyPrefix}-${match.index}`} className="font-semibold text-white">{match[2]}</strong>);
     else if (match[3] !== undefined)
       parts.push(<em key={`${keyPrefix}-${match.index}`} className="italic">{match[3]}</em>);
     else if (match[4] !== undefined)
@@ -52,13 +60,16 @@ function renderMarkdown(text: string): React.ReactNode {
   const flushBullets = () => {
     if (!bulletBuf.length) return;
     blocks.push(
-      <ul key={key++} className="list-disc pl-5 space-y-0.5 my-1">
+      <div key={key++} className="space-y-2 my-1">
         {bulletBuf.map((item, j) => (
-          <li key={j} className="text-[15px] leading-[1.7] text-white/75">
-            {renderInline(item, `ul-${key}-${j}`)}
-          </li>
+          <div key={j} className="flex items-start gap-2.5">
+            <div className="w-1 h-1 rounded-full bg-white/30 mt-[9px] shrink-0" />
+            <span className="text-white/75 text-[15px] leading-relaxed">
+              {renderInline(item, `ul-${key}-${j}`)}
+            </span>
+          </div>
         ))}
-      </ul>
+      </div>
     );
     bulletBuf = [];
   };
@@ -66,9 +77,9 @@ function renderMarkdown(text: string): React.ReactNode {
   const flushNumbered = () => {
     if (!numBuf.length) return;
     blocks.push(
-      <ol key={key++} className="list-decimal pl-5 space-y-0.5 my-1">
+      <ol key={key++} className="list-decimal pl-5 space-y-1 my-1">
         {numBuf.map((item, j) => (
-          <li key={j} className="text-[15px] leading-[1.7] text-white/75">
+          <li key={j} className="text-[15px] leading-relaxed text-white/75">
             {renderInline(item, `ol-${key}-${j}`)}
           </li>
         ))}
@@ -99,7 +110,7 @@ function renderMarkdown(text: string): React.ReactNode {
     if (headingMatch) {
       const level = headingMatch[1].length;
       blocks.push(
-        <p key={key++} className={`font-semibold text-white/90 mt-3 mb-0.5 ${level === 1 ? "text-[16px]" : "text-[15px]"}`}>
+        <p key={key++} className={`font-semibold text-white mt-3 mb-0.5 ${level === 1 ? "text-[16px]" : "text-[15px]"}`}>
           {renderInline(headingMatch[2], `h-${key}`)}
         </p>
       );
@@ -112,7 +123,7 @@ function renderMarkdown(text: string): React.ReactNode {
     }
 
     blocks.push(
-      <p key={key++} className="text-[15px] leading-[1.7] text-white/80">
+      <p key={key++} className="text-white/75 text-[15px] leading-relaxed">
         {renderInline(line, `p-${key}`)}
       </p>
     );
@@ -123,46 +134,19 @@ function renderMarkdown(text: string): React.ReactNode {
   return <>{blocks}</>;
 }
 
-// ── Shared components ────────────────────────────────────────────────────────
+// ── UI Components ────────────────────────────────────────────────────────────
 
-function SpinnerIcon({ size = 13 }: { size?: number }) {
+function TypingDots() {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      style={{ animation: "spin 1.1s linear infinite", flexShrink: 0 }}
-    >
-      <path
-        d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z"
-        fill="rgba(255,255,255,0.45)"
-      />
-    </svg>
-  );
-}
-
-function StatusBubble({ statusKind }: { statusKind: "building" | "pushed" }) {
-  if (statusKind === "pushed") {
-    return (
-      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1c1c20] text-[14px]">
-        <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-          <path
-            d="M2 7L5.5 10.5L12 3.5"
-            stroke="#10B981"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        <span className="text-[#10B981] font-medium">1 action completed</span>
-      </div>
-    );
-  }
-  return (
-    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1c1c20] text-[14px] text-white/40">
-      <SpinnerIcon />
-      Building...
+    <div className="flex items-center gap-1.5 py-1">
+      {[0, 1, 2].map((i) => (
+        <motion.div
+          key={i}
+          className="w-1.5 h-1.5 rounded-full bg-white/30"
+          animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1, 0.8] }}
+          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+        />
+      ))}
     </div>
   );
 }
@@ -176,6 +160,7 @@ export default function Dashboard() {
   const [input, setInput] = useState("");
   const [syncToken, setSyncToken] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(true);
+  const [tokenRevealed, setTokenRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
@@ -219,16 +204,15 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }, [input]);
 
-  const handleSend = async () => {
-    const text = input.trim();
+  const handleSend = async (textOverride?: string) => {
+    const text = (textOverride ?? input).trim();
     if (!text || isStreaming) return;
     setInput("");
 
@@ -300,12 +284,9 @@ export default function Dashboard() {
 
             if (json.delta) {
               fullText += json.delta;
-              // Hide the JSON fence while streaming so user never sees raw JSON
               const displayText = fullText.replace(/```json[\s\S]*$/, "").trimEnd();
               setMessages((prev) => {
                 const updated = [...prev];
-                // AI message is always the last before any status bubbles appear
-                // (building event only arrives after all deltas)
                 updated[updated.length - 1] = {
                   role: "ai",
                   text: displayText,
@@ -333,7 +314,6 @@ export default function Dashboard() {
         return updated;
       });
     } finally {
-      // Strip JSON block — show only the 1-2 sentence summary
       const displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
 
       setMessages((prev) => {
@@ -357,7 +337,7 @@ export default function Dashboard() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -376,207 +356,348 @@ export default function Dashboard() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const displayName = user?.email?.split("@")[0] ?? "there";
+  const maskedToken = syncToken
+    ? syncToken.slice(0, 4) + "●".repeat(10) + syncToken.slice(-4)
+    : null;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between px-5 md:px-8 py-4 border-b border-white/[0.06] bg-[#0a0a0a]/90 backdrop-blur-xl sticky top-0 z-20">
-        <Link href="/" className="flex items-center gap-1.5">
-          <Image src="/logo.png" alt="Bloxr" width={32} height={32} className="object-contain" />
-          <span className="text-white text-[20px] font-bold tracking-tight">Bloxr</span>
-        </Link>
-        <div className="flex items-center gap-5">
-          <span className="hidden sm:block text-white/30 text-[13px]">{user?.email}</span>
+    <div className="flex h-screen w-full overflow-hidden" style={{ background: "#080808" }}>
+
+      {/* ── SIDEBAR ── */}
+      <div className="hidden md:flex flex-col w-[260px] shrink-0 border-r border-white/[0.06]" style={{ background: "#0c0c0c" }}>
+
+        {/* Logo */}
+        <div className="flex items-center px-5 h-[60px] border-b border-white/[0.06]">
+          <Image src="/logo.png" alt="Bloxr" width={26} height={26} className="object-contain" />
+          <span className="ml-2 text-white text-[15px] font-bold tracking-tight">Bloxr</span>
+        </div>
+
+        {/* New chat */}
+        <div className="px-3 pt-3">
           <button
-            onClick={handleLogout}
-            className="text-white/40 hover:text-white text-[14px] font-medium transition-colors duration-200"
+            onClick={() => setMessages([])}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-white/[0.08] hover:border-white/[0.14] hover:bg-white/[0.03] text-white/50 hover:text-white/80 text-[13px] font-medium transition-all duration-200"
           >
-            Sign out
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            New chat
           </button>
         </div>
-      </header>
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 65px)" }}>
-        {/* Sidebar — hidden on mobile */}
-        <aside className="hidden md:flex w-[260px] shrink-0 border-r border-white/[0.06] flex-col p-5 gap-5 overflow-y-auto">
+        {/* Scrollable middle */}
+        <div className="flex-1 overflow-y-auto px-3 pt-5 flex flex-col gap-5">
+
+          {/* Studio connection */}
           <div>
-            <p className="text-[12px] uppercase tracking-widest text-white/20 font-medium mb-1">Dashboard</p>
-            <p className="text-[16px] font-semibold text-white">Hey, {displayName} 👋</p>
-          </div>
+            <p className="text-[11px] text-white/25 font-semibold uppercase tracking-[0.1em] px-1 mb-3">Studio</p>
 
-          <div className="h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-
-          {/* Studio Connection */}
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-col gap-3">
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-2 h-2 rounded-full shrink-0 transition-colors duration-300 ${
-                  connected ? "bg-[#10B981] shadow-[0_0_6px_rgba(16,185,129,0.6)]" : "bg-white/20"
-                }`}
-              />
-              <span className="text-[13px] font-medium text-white/50">
-                {connected ? "Studio connected" : "Studio not connected"}
+            <div className="flex items-center gap-2.5 px-1 mb-2">
+              <div className="relative shrink-0">
+                {connected && (
+                  <motion.div
+                    className="absolute inset-0 rounded-full bg-[#10B981]"
+                    animate={{ scale: [1, 2, 1], opacity: [0.6, 0, 0.6] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  />
+                )}
+                <div className={`w-2 h-2 rounded-full ${connected ? "bg-[#10B981]" : "bg-white/20"}`} />
+              </div>
+              <span className={`text-[13px] font-medium ${connected ? "text-[#10B981]" : "text-white/35"}`}>
+                {connected ? "Studio connected" : "Not connected"}
               </span>
             </div>
+
+            <p className="text-[11px] text-white/20 px-1 leading-relaxed mb-3">
+              Open Roblox Studio and activate the Bloxr plugin to connect.
+            </p>
+
             <button
               onClick={() => setConnected((c) => !c)}
-              className={`w-full rounded-full py-[9px] text-[13px] font-semibold transition-all duration-200 ${
+              className={`w-full rounded-xl py-2 text-[13px] font-semibold transition-all duration-200 ${
                 connected
                   ? "border border-white/10 text-white/40 hover:border-white/20 hover:text-white/60"
-                  : "bg-[#4F8EF7] text-white hover:shadow-[0_0_20px_rgba(79,142,247,0.3)] active:scale-[0.97]"
+                  : "bg-[#4F8EF7]/10 border border-[#4F8EF7]/30 text-[#4F8EF7] hover:bg-[#4F8EF7]/15"
               }`}
             >
               {connected ? "Disconnect" : "Connect Studio"}
             </button>
-            {!connected && (
-              <p className="text-[11px] text-white/20 leading-[1.5]">
-                Open Roblox Studio and activate the Bloxr plugin to connect.
-              </p>
-            )}
           </div>
 
-          {/* Studio Token */}
+          {/* Token */}
           {!tokenLoading && (
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-col gap-3">
-              <div>
-                <p className="text-[12px] uppercase tracking-widest text-white/30 font-medium mb-0.5">
-                  Your Studio Token
-                </p>
-                <p className="text-[11px] text-white/30 leading-[1.6]">
-                  Copy this token and paste it into the Bloxr plugin in Roblox Studio.
-                </p>
+            <div className="border-t border-white/[0.06] pt-5">
+              <div className="flex items-center justify-between px-1 mb-2.5">
+                <p className="text-[11px] text-white/25 font-semibold uppercase tracking-[0.1em]">Studio Token</p>
+                <button
+                  onClick={() => setTokenRevealed((v) => !v)}
+                  className="text-white/20 hover:text-white/50 transition-colors"
+                >
+                  {tokenRevealed ? (
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path d="M2 8s2.5-5 6-5 6 5 6 5-2.5 5-6 5-6-5-6-5z" stroke="currentColor" strokeWidth="1.2" />
+                      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+                      <path d="M2 2l12 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path d="M2 8s2.5-5 6-5 6 5 6 5-2.5 5-6 5-6-5-6-5z" stroke="currentColor" strokeWidth="1.2" />
+                      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+                    </svg>
+                  )}
+                </button>
               </div>
+
               {syncToken ? (
-                <>
-                  <div className="rounded-lg bg-black/60 border border-white/[0.07] px-3 py-2.5 font-mono text-[11px] text-[#4F8EF7] break-all leading-[1.6] select-all">
-                    {syncToken}
+                <div className="rounded-xl border border-white/[0.07] overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2.5 bg-black/30">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#4F8EF7]/60 shrink-0" />
+                    <span className="flex-1 text-[11px] font-mono text-white/40 truncate">
+                      {tokenRevealed ? syncToken : maskedToken}
+                    </span>
                   </div>
                   <button
                     onClick={handleCopyToken}
-                    className={`w-full flex items-center justify-center gap-2 rounded-full py-[9px] text-[13px] font-semibold transition-all duration-200 ${
-                      copied
-                        ? "border border-[#10B981]/30 text-[#10B981]"
-                        : "border border-white/10 text-white/50 hover:border-white/20 hover:text-white/80 active:scale-[0.97]"
-                    }`}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-[12px] bg-white/[0.02] hover:bg-white/[0.05] border-t border-white/[0.06] transition-all duration-200"
                   >
                     {copied ? (
                       <>
-                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                          <path d="M2 7L5.5 10.5L12 3.5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
-                        Copied!
+                        <span className="text-[#10B981] font-medium">Copied!</span>
                       </>
                     ) : (
                       <>
-                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                          <rect x="4.5" y="4.5" width="7" height="7" rx="1.25" stroke="currentColor" strokeWidth="1.2" />
-                          <path d="M2 9.5V2.5A.5.5 0 0 1 2.5 2h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                          <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="rgba(255,255,255,0.3)" strokeWidth="1.2" />
+                          <path d="M3 11V3.5A1.5 1.5 0 014.5 2H11" stroke="rgba(255,255,255,0.3)" strokeWidth="1.2" strokeLinecap="round" />
                         </svg>
-                        Copy Token
+                        <span className="text-white/30 font-medium">Copy token</span>
                       </>
                     )}
                   </button>
-                </>
+                </div>
               ) : (
-                <p className="text-[11px] text-white/20">No token — server offline</p>
+                <p className="text-[11px] text-white/20 px-1">No token — server offline</p>
               )}
             </div>
           )}
-        </aside>
+        </div>
 
-        {/* Chat area */}
-        <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-10 flex flex-col gap-6">
+        {/* User row */}
+        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4F8EF7]/30 to-[#4F8EF7]/10 border border-[#4F8EF7]/20 flex items-center justify-center shrink-0">
+            <span className="text-[11px] text-[#4F8EF7] font-bold uppercase">
+              {user?.email?.[0] ?? "U"}
+            </span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-white/70 text-[12px] font-semibold truncate">{user?.email?.split("@")[0] ?? "User"}</p>
+            <p className="text-white/25 text-[11px] truncate">{user?.email ?? ""}</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            className="text-white/20 hover:text-white/60 transition-colors shrink-0"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M11 11l3-3-3-3M14 8H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* ── MAIN CHAT AREA ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-6 h-[60px] border-b border-white/[0.06] shrink-0">
+          <div>
+            <p className="text-white text-[14px] font-semibold">Chat</p>
+            <p className="text-white/30 text-[12px]">AI Roblox developer</p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {connected && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#10B981]/[0.08] border border-[#10B981]/20"
+              >
+                <motion.div
+                  className="w-1.5 h-1.5 rounded-full bg-[#10B981]"
+                  animate={{ opacity: [1, 0.4, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+                <span className="text-[12px] text-[#10B981] font-medium">Live sync active</span>
+              </motion.div>
+            )}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto">
+          <AnimatePresence mode="wait">
             {messages.length === 0 ? (
               <motion.div
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="flex-1 flex flex-col items-center justify-center text-center"
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex flex-col items-center justify-center h-full px-8 pb-16"
               >
-                <div className="w-12 h-12 rounded-full border border-white/[0.08] bg-white/[0.03] flex items-center justify-center mb-5">
-                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="white" opacity="0.35" />
-                  </svg>
+                {/* Logo with glow */}
+                <div className="relative mb-8">
+                  <div className="absolute inset-0 bg-[#4F8EF7]/10 rounded-full blur-[60px] scale-[2]" />
+                  <motion.div
+                    className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-[#4F8EF7]/20 to-[#4F8EF7]/5 border border-[#4F8EF7]/20 flex items-center justify-center"
+                    animate={{ y: [0, -4, 0] }}
+                    transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                  >
+                    <Image src="/logo.png" alt="Bloxr" width={32} height={32} className="object-contain" />
+                  </motion.div>
                 </div>
-                <p className="text-[20px] font-semibold text-white/80 mb-2">
+
+                <h2 className="text-white text-[22px] font-semibold mb-2 tracking-tight">
                   What do you want to build?
+                </h2>
+                <p className="text-white/35 text-[15px] text-center max-w-[360px] leading-relaxed mb-10">
+                  Describe any Roblox feature in plain English. Bloxr writes the code and pushes it to your game instantly.
                 </p>
-                <p className="text-[15px] text-white/30 max-w-[340px] leading-relaxed">
-                  Describe a Roblox feature and Bloxr will build and push it to Studio.
-                </p>
+
+                {/* Suggestion grid */}
+                <div className="grid grid-cols-2 gap-2.5 w-full max-w-[580px]">
+                  {EXAMPLE_PROMPTS.map((prompt, i) => (
+                    <motion.button
+                      key={i}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.07 + 0.1 }}
+                      onClick={() => handleSend(prompt)}
+                      className="text-left px-4 py-3.5 rounded-xl border border-white/[0.07] hover:border-white/[0.14] bg-white/[0.02] hover:bg-white/[0.04] text-white/50 hover:text-white/80 text-[13px] leading-relaxed transition-all duration-200 group"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <svg className="shrink-0 mt-0.5 text-white/20 group-hover:text-[#4F8EF7]/60 transition-colors" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        {prompt}
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
               </motion.div>
             ) : (
-              messages.map((msg, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  {msg.role === "status" ? (
-                    <StatusBubble statusKind={msg.statusKind!} />
-                  ) : msg.role === "user" ? (
-                    /* User bubble — white, rounded-2xl */
-                    <div className="max-w-[60%] bg-white text-black text-[15px] leading-relaxed px-4 py-[10px] rounded-2xl whitespace-pre-wrap">
-                      {msg.text}
-                    </div>
-                  ) : (
-                    /* AI — no bubble, plain text on dark background */
-                    <div className="max-w-[680px] text-[15px] leading-relaxed">
-                      {msg.streaming && !msg.text ? (
-                        <p className="text-white/40">Getting context...</p>
-                      ) : (
-                        renderMarkdown(msg.text)
+              <motion.div
+                key="messages"
+                className="px-8 py-8 space-y-6 max-w-[820px] mx-auto w-full"
+              >
+                <AnimatePresence initial={false}>
+                  {messages.map((msg, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      {/* AI avatar */}
+                      {msg.role === "ai" && (
+                        <div className="w-7 h-7 rounded-lg bg-[#4F8EF7]/10 border border-[#4F8EF7]/20 flex items-center justify-center shrink-0 mt-0.5">
+                          <Image src="/logo.png" alt="Bloxr" width={16} height={16} className="object-contain" />
+                        </div>
                       )}
-                    </div>
-                  )}
-                </motion.div>
-              ))
-            )}
-            <div ref={messagesEndRef} />
-          </div>
 
-          {/* Input */}
-          <div className="px-6 py-4 border-t border-white/[0.06] bg-[#0a0a0a]">
-            <div className="relative rounded-2xl border border-white/[0.08] bg-[#111] overflow-hidden">
-              <div className="flex items-end gap-3 px-4 py-3">
-                <textarea
-                  ref={textareaRef}
-                  rows={1}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Describe what you want to build..."
-                  className="flex-1 bg-transparent text-[15px] text-white/75 placeholder-white/25 outline-none resize-none overflow-hidden leading-relaxed max-h-[120px]"
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() || isStreaming}
-                  className={`shrink-0 w-[30px] h-[30px] rounded-lg flex items-center justify-center transition-all duration-200 mb-[2px] ${
-                    input.trim() && !isStreaming
-                      ? "bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.15)] active:scale-[0.92]"
-                      : "bg-white/[0.06]"
-                  }`}
-                >
-                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                    <path
-                      d="M7 12V2M7 2L3 6M7 2L11 6"
-                      stroke={input.trim() && !isStreaming ? "black" : "rgba(255,255,255,0.2)"}
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
+                      {/* User bubble */}
+                      {msg.role === "user" && (
+                        <div className="max-w-[60%] bg-white text-black text-[14px] rounded-2xl rounded-tr-sm px-4 py-2.5 leading-relaxed font-medium whitespace-pre-wrap">
+                          {msg.text}
+                        </div>
+                      )}
+
+                      {/* AI message */}
+                      {msg.role === "ai" && (
+                        <div className="max-w-[640px] min-w-0">
+                          {msg.streaming && !msg.text ? (
+                            <TypingDots />
+                          ) : (
+                            renderMarkdown(msg.text)
+                          )}
+                        </div>
+                      )}
+
+                      {/* Status bubble */}
+                      {msg.role === "status" && msg.statusKind === "pushed" && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full text-[13px] font-medium"
+                          style={{ background: "#111", border: "1px solid rgba(16,185,129,0.2)" }}
+                        >
+                          <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 0.4 }}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                              <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </motion.div>
+                          <span className="text-[#10B981]">1 change pushed to Studio</span>
+                        </motion.div>
+                      )}
+
+                      {msg.role === "status" && msg.statusKind === "building" && (
+                        <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full text-[13px] text-white/40" style={{ background: "#111", border: "1px solid rgba(255,255,255,0.06)" }}>
+                          <TypingDots />
+                          <span>Building...</span>
+                        </div>
+                      )}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                <div ref={messagesEndRef} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Input */}
+        <div className="px-6 pb-5 pt-3 shrink-0">
+          <div
+            className="rounded-2xl border border-white/[0.08] focus-within:border-white/[0.14] transition-colors duration-200"
+            style={{ background: "#111" }}
+          >
+            <div className="flex items-end gap-2.5 px-3 pt-3 pb-3">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe what you want to build..."
+                className="flex-1 bg-transparent text-[14px] text-white/90 placeholder:text-white/25 outline-none resize-none leading-relaxed py-1"
+                style={{ maxHeight: 140 }}
+              />
+              <button
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isStreaming}
+                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 ${
+                  input.trim() && !isStreaming
+                    ? "bg-white hover:bg-white/90 active:scale-95"
+                    : "bg-white/[0.06] cursor-not-allowed"
+                }`}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M8 12V4M8 4L4.5 7.5M8 4L11.5 7.5"
+                    stroke={input.trim() && !isStreaming ? "#000" : "rgba(255,255,255,0.25)"}
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
             </div>
           </div>
-        </main>
+        </div>
+
       </div>
     </div>
   );
