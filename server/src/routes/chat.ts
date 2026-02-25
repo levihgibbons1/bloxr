@@ -10,10 +10,31 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are an expert Roblox game developer with full knowledge of current Roblox APIs and best practices.
 
 Rules you must always follow:
+
+## Simple 3D objects — use "part" type
+When the user asks to place, create, or add a Part, BasePart, or any simple 3D primitive object (brick, block, part, sphere, ball, wedge, cylinder, spawn location, floor, wall, platform, etc.), do NOT write a script. Instead respond with a JSON block of type "part":
+\`\`\`json
+{
+  "type": "part",
+  "name": "RedPart",
+  "className": "Part",
+  "properties": {
+    "BrickColor": "Bright red",
+    "Size": [4, 1, 2],
+    "Position": [0, 10, 0],
+    "Anchored": true
+  }
+}
+\`\`\`
+Valid className values: "Part", "WedgePart", "CornerWedgePart", "TrussPart", "SpawnLocation"
+BrickColor values: use standard Roblox BrickColor names e.g. "Bright red", "Bright blue", "Medium stone grey", "Bright green"
+
+## Scripts — use "script" type
+For logic, gameplay systems, NPCs, data stores, GUIs, animations, and anything requiring code:
 - Write Luau only — never write Lua. Use Luau type annotations where appropriate.
 - Always decide which Roblox service the script belongs in. Choose exactly one of:
   ServerScriptService, StarterPlayerScripts, ReplicatedStorage, StarterGui
-- When you provide code, wrap it in a single JSON block (fenced with \`\`\`json) with this exact shape:
+- Wrap the code in a single JSON block (fenced with \`\`\`json) with this exact shape:
   \`\`\`json
   {
     "scriptType": "Script" | "LocalScript" | "ModuleScript",
@@ -22,8 +43,10 @@ Rules you must always follow:
     "code": "-- full Luau source here"
   }
   \`\`\`
-- Always explain what the code does before the JSON block so the user understands the approach.
-- If a request does not need code (e.g. a follow-up question), reply in plain text only — no JSON block.`;
+
+## General
+- Always explain what the code or part does before the JSON block so the user understands the approach.
+- If a request does not need code or a part (e.g. a follow-up question), reply in plain text only — no JSON block.`;
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
 
@@ -82,24 +105,33 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       console.log("[chat] no JSON code block found in response — skipping sync_queue insert");
     } else {
       console.log("[chat] JSON block found:", jsonMatch[1].trim());
+      // Signal to client that we're about to insert
+      res.write(`data: ${JSON.stringify({ building: true })}\n\n`);
       try {
-        const parsed = JSON.parse(jsonMatch[1].trim()) as {
-          scriptType: string;
-          targetService: string;
-          name: string;
-          code: string;
-        };
-        console.log("[chat] parsed OK — scriptType:", parsed.scriptType, "name:", parsed.name, "targetService:", parsed.targetService);
+        const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>;
 
-        // Push to sync_queue
         const id = crypto.randomUUID();
-        const payload = {
-          type: "script",
-          scriptType: parsed.scriptType,
-          targetService: parsed.targetService,
-          name: parsed.name,
-          code: parsed.code,
-        };
+        let payload: Record<string, unknown>;
+
+        if (parsed.type === "part") {
+          console.log("[chat] parsed OK — type: part, name:", parsed.name, "className:", parsed.className);
+          payload = {
+            type: "part",
+            name: parsed.name,
+            className: parsed.className,
+            properties: parsed.properties,
+          };
+        } else {
+          console.log("[chat] parsed OK — type: script, scriptType:", parsed.scriptType, "name:", parsed.name, "targetService:", parsed.targetService);
+          payload = {
+            type: "script",
+            scriptType: parsed.scriptType,
+            targetService: parsed.targetService,
+            name: parsed.name,
+            code: parsed.code,
+          };
+        }
+
         console.log("[chat] inserting into sync_queue — id:", id, "userId:", userId, "payload:", JSON.stringify(payload));
 
         const { error } = await supabase.from("sync_queue").insert({
