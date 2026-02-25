@@ -195,6 +195,7 @@ export default function Dashboard() {
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renamingProjectName, setRenamingProjectName] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // ── Refs ──
   const activeChatIdRef = useRef<string | null>(null);
@@ -842,15 +843,50 @@ export default function Dashboard() {
             <p className="text-white/80 text-[13px] font-semibold truncate">{user?.email?.split("@")[0] ?? "User"}</p>
             <p className="text-white/30 text-[12px] truncate">{user?.email ?? ""}</p>
           </div>
-          <button
-            title="Settings"
-            className="text-white/25 hover:text-white/70 transition-colors shrink-0"
-          >
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-              <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M17 10a7 7 0 01-.07 1l1.53 1.19a.4.4 0 01.09.5l-1.45 2.51a.4.4 0 01-.48.17l-1.8-.72a7.1 7.1 0 01-.87.5l-.27 1.91a.39.39 0 01-.39.34H8.71a.39.39 0 01-.39-.34l-.27-1.91a7.1 7.1 0 01-.87-.5l-1.8.72a.4.4 0 01-.48-.17L3.45 12.7a.4.4 0 01.09-.5L5.07 11A7.12 7.12 0 015 10c0-.34.02-.68.07-1L3.54 7.81a.4.4 0 01-.09-.5l1.45-2.51a.4.4 0 01.48-.17l1.8.72a7.1 7.1 0 01.87-.5l.27-1.91A.39.39 0 018.71 2.6h2.9c.2 0 .36.14.39.34l.27 1.91c.3.14.6.31.87.5l1.8-.72a.4.4 0 01.48.17l1.45 2.51a.4.4 0 01-.09.5L15.93 9c.05.32.07.66.07 1z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+
+          {/* Gear button + popover */}
+          <div className="relative shrink-0">
+            <button
+              title="Settings"
+              onClick={() => setSettingsOpen((v) => !v)}
+              className={`text-white/25 hover:text-white/70 transition-colors ${settingsOpen ? "text-white/70" : ""}`}
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M17 10a7 7 0 01-.07 1l1.53 1.19a.4.4 0 01.09.5l-1.45 2.51a.4.4 0 01-.48.17l-1.8-.72a7.1 7.1 0 01-.87.5l-.27 1.91a.39.39 0 01-.39.34H8.71a.39.39 0 01-.39-.34l-.27-1.91a7.1 7.1 0 01-.87-.5l-1.8.72a.4.4 0 01-.48-.17L3.45 12.7a.4.4 0 01.09-.5L5.07 11A7.12 7.12 0 015 10c0-.34.02-.68.07-1L3.54 7.81a.4.4 0 01-.09-.5l1.45-2.51a.4.4 0 01.48-.17l1.8.72a7.1 7.1 0 01.87-.5l.27-1.91A.39.39 0 018.71 2.6h2.9c.2 0 .36.14.39.34l.27 1.91c.3.14.6.31.87.5l1.8-.72a.4.4 0 01.48.17l1.45 2.51a.4.4 0 01-.09.5L15.93 9c.05.32.07.66.07 1z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <AnimatePresence>
+              {settingsOpen && (
+                <>
+                  {/* Backdrop to close on outside click */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setSettingsOpen(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 4 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-full right-0 mb-2 z-20 w-[160px] rounded-xl border border-white/[0.08] overflow-hidden"
+                    style={{ background: "#161616" }}
+                  >
+                    <button
+                      onClick={() => { setSettingsOpen(false); handleLogout(); }}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-white/60 hover:text-white hover:bg-white/[0.05] transition-all duration-150"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                        <path d="M6 3H3a1 1 0 00-1 1v8a1 1 0 001 1h3M10 11l3-3-3-3M13 8H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Sign out
+                    </button>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
