@@ -9,29 +9,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-type ScriptInfo = {
-  name: string;
-  scriptType: string;
-  targetService: string;
-  code: string;
-};
-
-type PartInfo = {
-  name: string;
-  className: string;
-  properties: Record<string, unknown>;
-};
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type Message = {
   role: "user" | "ai" | "status";
   text: string;
   streaming?: boolean;
-  scriptInfo?: ScriptInfo;
-  partInfo?: PartInfo;
-  // "status" role fields
   statusKind?: "building" | "pushed";
 };
 
@@ -41,7 +25,6 @@ type ConversationMessage = { role: "user" | "assistant"; content: string };
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
-  // Order matters: match **bold** before *italic* so ** isn't swallowed by *
   const pattern = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -71,7 +54,7 @@ function renderMarkdown(text: string): React.ReactNode {
     blocks.push(
       <ul key={key++} className="list-disc pl-5 space-y-0.5 my-1">
         {bulletBuf.map((item, j) => (
-          <li key={j} className="text-[14px] leading-[1.7] text-white/75">
+          <li key={j} className="text-[15px] leading-[1.7] text-white/75">
             {renderInline(item, `ul-${key}-${j}`)}
           </li>
         ))}
@@ -85,7 +68,7 @@ function renderMarkdown(text: string): React.ReactNode {
     blocks.push(
       <ol key={key++} className="list-decimal pl-5 space-y-0.5 my-1">
         {numBuf.map((item, j) => (
-          <li key={j} className="text-[14px] leading-[1.7] text-white/75">
+          <li key={j} className="text-[15px] leading-[1.7] text-white/75">
             {renderInline(item, `ol-${key}-${j}`)}
           </li>
         ))}
@@ -97,14 +80,12 @@ function renderMarkdown(text: string): React.ReactNode {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Bullet list item: "- text" or "* text"
     if (/^[-*] .+/.test(line)) {
       flushNumbered();
       bulletBuf.push(line.replace(/^[-*] /, ""));
       continue;
     }
 
-    // Numbered list item: "1. text"
     if (/^\d+\. .+/.test(line)) {
       flushBullets();
       numBuf.push(line.replace(/^\d+\. /, ""));
@@ -114,27 +95,24 @@ function renderMarkdown(text: string): React.ReactNode {
     flushBullets();
     flushNumbered();
 
-    // Headings: #, ##, ###
     const headingMatch = line.match(/^(#{1,3}) (.+)/);
     if (headingMatch) {
       const level = headingMatch[1].length;
       blocks.push(
-        <p key={key++} className={`font-semibold text-white/90 mt-3 mb-0.5 ${level === 1 ? "text-[15px]" : "text-[14px]"}`}>
+        <p key={key++} className={`font-semibold text-white/90 mt-3 mb-0.5 ${level === 1 ? "text-[16px]" : "text-[15px]"}`}>
           {renderInline(headingMatch[2], `h-${key}`)}
         </p>
       );
       continue;
     }
 
-    // Empty line → paragraph gap
     if (line.trim() === "") {
       if (blocks.length) blocks.push(<div key={key++} className="h-2" />);
       continue;
     }
 
-    // Regular paragraph line
     blocks.push(
-      <p key={key++} className="text-[14px] leading-[1.7] text-white/75">
+      <p key={key++} className="text-[15px] leading-[1.7] text-white/80">
         {renderInline(line, `p-${key}`)}
       </p>
     );
@@ -145,10 +123,9 @@ function renderMarkdown(text: string): React.ReactNode {
   return <>{blocks}</>;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
+// ── Shared components ────────────────────────────────────────────────────────
 
-// Spinning Bloxr star used in status states
-function SpinnerIcon({ size = 14, opacity = 0.5 }: { size?: number; opacity?: number }) {
+function SpinnerIcon({ size = 13 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -159,109 +136,38 @@ function SpinnerIcon({ size = 14, opacity = 0.5 }: { size?: number; opacity?: nu
     >
       <path
         d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z"
-        fill={`rgba(255,255,255,${opacity})`}
+        fill="rgba(255,255,255,0.45)"
       />
     </svg>
   );
 }
 
-// Separate status bubble rendered below the main AI response
 function StatusBubble({ statusKind }: { statusKind: "building" | "pushed" }) {
   if (statusKind === "pushed") {
     return (
-      <div className="inline-flex items-center gap-2 px-3 py-[7px] rounded-xl bg-[#10B981]/[0.08] border border-[#10B981]/20 text-[#10B981] text-[13px] font-medium">
-        <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-          <path d="M2 7L5.5 10.5L12 3.5" stroke="#10B981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <div className="flex items-center gap-2 px-4 py-[9px] rounded-2xl bg-[#1c1c20] text-[13px]">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <path
+            d="M2 7L5.5 10.5L12 3.5"
+            stroke="#10B981"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
-        Pushed to Studio
+        <span className="text-[#10B981] font-medium">1 action completed</span>
       </div>
     );
   }
   return (
-    <div className="inline-flex items-center gap-2 px-3 py-[7px] rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/40 text-[13px]">
-      <SpinnerIcon size={13} opacity={0.4} />
+    <div className="flex items-center gap-2 px-4 py-[9px] rounded-2xl bg-[#1c1c20] text-[13px] text-white/40">
+      <SpinnerIcon />
       Building...
     </div>
   );
 }
 
-function AIMessageContent({ msg }: { msg: Message }) {
-  // Initial state: no text yet — show spinner + "Getting context..."
-  if (msg.streaming && !msg.text) {
-    return (
-      <div className="flex items-center gap-2.5 py-0.5 text-[13px] text-white/40">
-        <SpinnerIcon size={14} opacity={0.45} />
-        Getting context...
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      {msg.text && (
-        <div className="flex flex-col gap-0">
-          {renderMarkdown(msg.text)}
-        </div>
-      )}
-
-      {/* Script: syntax-highlighted code block */}
-      {msg.scriptInfo && (
-        <div className="rounded-xl overflow-hidden border border-white/[0.08]">
-          <div className="flex items-center justify-between px-4 py-2 bg-white/[0.03] border-b border-white/[0.06]">
-            <span className="text-[11px] font-mono text-white/40">{msg.scriptInfo.name}.luau</span>
-            <span className="text-[11px] text-white/25">{msg.scriptInfo.scriptType}</span>
-          </div>
-          <SyntaxHighlighter
-            language="lua"
-            style={oneDark}
-            customStyle={{ margin: 0, borderRadius: 0, fontSize: 12, lineHeight: "1.6" }}
-            wrapLongLines
-          >
-            {msg.scriptInfo.code}
-          </SyntaxHighlighter>
-        </div>
-      )}
-
-      {/* Script info chip */}
-      {msg.scriptInfo && (
-        <div className="flex items-center gap-1.5 text-[12px] text-white/40 bg-white/[0.03] rounded-lg px-3 py-1.5 border border-white/[0.06] w-fit">
-          <span>📄</span>
-          <span className="font-mono">{msg.scriptInfo.name}</span>
-          <span className="text-white/20 mx-0.5">→</span>
-          <span>{msg.scriptInfo.targetService}</span>
-        </div>
-      )}
-
-      {/* Part: properties table */}
-      {msg.partInfo && (
-        <div className="rounded-xl overflow-hidden border border-white/[0.08]">
-          <div className="flex items-center justify-between px-4 py-2 bg-white/[0.03] border-b border-white/[0.06]">
-            <span className="text-[11px] font-mono text-white/40">{msg.partInfo.name}</span>
-            <span className="text-[11px] text-white/25">{msg.partInfo.className}</span>
-          </div>
-          <div className="px-4 py-3 flex flex-col gap-1.5">
-            {Object.entries(msg.partInfo.properties).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-3 text-[12px]">
-                <span className="text-white/30 font-mono w-24 shrink-0">{k}</span>
-                <span className="text-white/65 font-mono">{JSON.stringify(v)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Part info chip */}
-      {msg.partInfo && (
-        <div className="flex items-center gap-1.5 text-[12px] text-white/40 bg-white/[0.03] rounded-lg px-3 py-1.5 border border-white/[0.06] w-fit">
-          <span>🧱</span>
-          <span className="font-mono">{msg.partInfo.name}</span>
-          <span className="text-white/20 mx-0.5">·</span>
-          <span>{msg.partInfo.className}</span>
-        </div>
-      )}
-    </div>
-  );
-}
+// ── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null);
@@ -281,16 +187,10 @@ export default function Dashboard() {
   useEffect(() => {
     const init = async () => {
       if (!supabase) return;
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push("/login"); return; }
       setUser(user);
 
-      // Fetch sync token from server
       try {
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_SERVER_URL}/api/auth/token`,
@@ -332,10 +232,7 @@ export default function Dashboard() {
     if (!text || isStreaming) return;
     setInput("");
 
-    const userMessage: Message = { role: "user", text };
-    setMessages((prev) => [...prev, userMessage]);
-
-    // Append a blank streaming AI message
+    setMessages((prev) => [...prev, { role: "user", text }]);
     setMessages((prev) => [...prev, { role: "ai", text: "", streaming: true }]);
     setIsStreaming(true);
 
@@ -343,21 +240,16 @@ export default function Dashboard() {
     let fullText = "";
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SERVER_URL}/api/chat`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ message: text, conversationHistory }),
-        }
-      );
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message: text, conversationHistory }),
+      });
 
-      if (!res.ok || !res.body) {
-        throw new Error(`Server error: ${res.status}`);
-      }
+      if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -387,7 +279,6 @@ export default function Dashboard() {
             if (json.error) throw new Error(json.error);
 
             if (json.building) {
-              // Append a new "Building..." status bubble after the AI response
               setMessages((prev) => [
                 ...prev,
                 { role: "status", text: "", statusKind: "building" },
@@ -395,7 +286,6 @@ export default function Dashboard() {
             }
 
             if (json.codePushed) {
-              // Flip the last status bubble to "pushed"
               setMessages((prev) => {
                 const updated = [...prev];
                 for (let i = updated.length - 1; i >= 0; i--) {
@@ -410,10 +300,12 @@ export default function Dashboard() {
 
             if (json.delta) {
               fullText += json.delta;
-              // Hide the JSON fence while streaming
+              // Hide the JSON fence while streaming so user never sees raw JSON
               const displayText = fullText.replace(/```json[\s\S]*$/, "").trimEnd();
               setMessages((prev) => {
                 const updated = [...prev];
+                // AI message is always the last before any status bubbles appear
+                // (building event only arrives after all deltas)
                 updated[updated.length - 1] = {
                   role: "ai",
                   text: displayText,
@@ -432,46 +324,23 @@ export default function Dashboard() {
       fullText = errText;
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "ai", text: errText };
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].role === "ai") {
+            updated[i] = { role: "ai", text: errText };
+            break;
+          }
+        }
         return updated;
       });
     } finally {
-      // Parse JSON block from full response and build final message
-      const jsonMatch = fullText.match(/```json\s*([\s\S]*?)```/);
-      let scriptInfo: ScriptInfo | undefined;
-      let partInfo: PartInfo | undefined;
-      let displayText = fullText;
+      // Strip JSON block — show only the 1-2 sentence summary
+      const displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
 
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>;
-          displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
-
-          if (parsed.type === "part") {
-            partInfo = {
-              name: parsed.name as string,
-              className: parsed.className as string,
-              properties: (parsed.properties ?? {}) as Record<string, unknown>,
-            };
-          } else {
-            scriptInfo = {
-              name: parsed.name as string,
-              scriptType: parsed.scriptType as string,
-              targetService: parsed.targetService as string,
-              code: parsed.code as string,
-            };
-          }
-        } catch {
-          // Malformed JSON block — keep full text as-is
-        }
-      }
-
-      // Find the last "ai" message (status bubbles may have been appended after it)
       setMessages((prev) => {
         const updated = [...prev];
         for (let i = updated.length - 1; i >= 0; i--) {
           if (updated[i].role === "ai") {
-            updated[i] = { role: "ai", text: displayText, scriptInfo, partInfo };
+            updated[i] = { role: "ai", text: displayText };
             break;
           }
         }
@@ -480,7 +349,6 @@ export default function Dashboard() {
 
       setIsStreaming(false);
 
-      // Update conversation history for next turn (use raw text for context)
       setConversationHistory((prev) => [
         ...prev,
         { role: "user", content: text },
@@ -511,12 +379,12 @@ export default function Dashboard() {
   const displayName = user?.email?.split("@")[0] ?? "there";
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-5 md:px-8 py-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-xl sticky top-0 z-20">
-        <Link href="/" className="flex items-center gap-1">
-          <Image src="/logo.png" alt="Bloxr" width={34} height={34} className="object-contain" />
-          <span className="text-white text-[22px] font-bold tracking-tight">Bloxr</span>
+      <header className="flex items-center justify-between px-5 md:px-8 py-4 border-b border-white/[0.06] bg-[#0a0a0a]/90 backdrop-blur-xl sticky top-0 z-20">
+        <Link href="/" className="flex items-center gap-1.5">
+          <Image src="/logo.png" alt="Bloxr" width={32} height={32} className="object-contain" />
+          <span className="text-white text-[20px] font-bold tracking-tight">Bloxr</span>
         </Link>
         <div className="flex items-center gap-5">
           <span className="hidden sm:block text-white/30 text-[13px]">{user?.email}</span>
@@ -533,13 +401,11 @@ export default function Dashboard() {
       <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 65px)" }}>
         {/* Sidebar — hidden on mobile */}
         <aside className="hidden md:flex w-[260px] shrink-0 border-r border-white/[0.06] flex-col p-5 gap-5 overflow-y-auto">
-          {/* Welcome */}
           <div>
             <p className="text-[12px] uppercase tracking-widest text-white/20 font-medium mb-1">Dashboard</p>
             <p className="text-[16px] font-semibold text-white">Hey, {displayName} 👋</p>
           </div>
 
-          {/* Divider */}
           <div className="h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
           {/* Studio Connection */}
@@ -623,44 +489,53 @@ export default function Dashboard() {
         {/* Chat area */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 flex flex-col gap-4">
+          <div className="flex-1 overflow-y-auto px-4 md:px-10 py-8 flex flex-col gap-3 max-w-3xl mx-auto w-full">
             {messages.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
-                className="flex-1 flex flex-col items-center justify-center text-center my-auto pt-12"
+                className="flex-1 flex flex-col items-center justify-center text-center my-auto"
               >
                 <div className="w-12 h-12 rounded-full border border-white/[0.08] bg-white/[0.03] flex items-center justify-center mb-4">
                   <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
                     <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="white" opacity="0.3" />
                   </svg>
                 </div>
-                <p className="text-[20px] font-medium text-white/70 mb-2">
+                <p className="text-[20px] font-semibold text-white/80 mb-2">
                   What do you want to build?
                 </p>
-                <p className="text-[14px] text-white/25 max-w-[380px] leading-[1.7]">
-                  Describe a Roblox feature and Bloxr will generate the Luau code and push it to Studio.
+                <p className="text-[14px] text-white/30 max-w-[340px] leading-[1.7]">
+                  Describe a Roblox feature and Bloxr will build and push it to Studio.
                 </p>
               </motion.div>
             ) : (
               messages.map((msg, i) => (
                 <motion.div
                   key={i}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: 0.18 }}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   {msg.role === "status" ? (
                     <StatusBubble statusKind={msg.statusKind!} />
                   ) : msg.role === "user" ? (
-                    <div className="max-w-[85%] md:max-w-[72%] rounded-2xl rounded-br-sm px-4 py-3 bg-[#4F8EF7] text-white text-[14px] leading-[1.65] whitespace-pre-wrap">
+                    /* User bubble — white pill */
+                    <div className="max-w-[75%] bg-white text-[#111] text-[15px] leading-[1.6] px-4 py-[10px] rounded-[20px] whitespace-pre-wrap font-[450]">
                       {msg.text}
                     </div>
                   ) : (
-                    <div className="max-w-[85%] md:max-w-[80%] rounded-2xl rounded-bl-sm px-4 py-3 bg-white/[0.04] border border-white/[0.07]">
-                      <AIMessageContent msg={msg} />
+                    /* AI bubble — dark gray */
+                    <div className="max-w-[85%] bg-[#1c1c20] text-white/80 text-[15px] leading-[1.7] px-4 py-[10px] rounded-2xl">
+                      {msg.streaming && !msg.text ? (
+                        <div className="flex items-center gap-2 text-white/40 text-[13px]">
+                          <SpinnerIcon />
+                          Getting context...
+                        </div>
+                      ) : (
+                        renderMarkdown(msg.text)
+                      )}
                     </div>
                   )}
                 </motion.div>
@@ -670,12 +545,12 @@ export default function Dashboard() {
           </div>
 
           {/* Input */}
-          <div className="px-4 md:px-6 py-4 border-t border-white/[0.06] bg-black sticky bottom-0">
-            <div className="relative rounded-2xl border border-white/[0.08] bg-[#0A0A0F]/90 backdrop-blur-xl overflow-hidden shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
-              <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.1] to-transparent" />
-              <div className="flex items-end gap-3 px-5 py-4">
-                <div className="w-[20px] h-[20px] rounded-full bg-gradient-to-br from-white/70 to-white/30 flex items-center justify-center shrink-0 mb-[2px]">
-                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+          <div className="px-4 md:px-10 py-4 border-t border-white/[0.06] bg-[#0a0a0a] max-w-3xl mx-auto w-full">
+            <div className="relative rounded-2xl border border-white/[0.08] bg-[#111115] overflow-hidden shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
+              <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+              <div className="flex items-end gap-3 px-4 py-3">
+                <div className="w-[18px] h-[18px] rounded-full bg-gradient-to-br from-white/70 to-white/30 flex items-center justify-center shrink-0 mb-[3px]">
+                  <svg width="9" height="9" viewBox="0 0 16 16" fill="none">
                     <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="black" />
                   </svg>
                 </div>
@@ -686,18 +561,18 @@ export default function Dashboard() {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Describe what you want to build..."
-                  className="flex-1 bg-transparent text-[15px] text-white/70 placeholder-white/20 outline-none resize-none overflow-hidden leading-[1.6] max-h-[120px]"
+                  className="flex-1 bg-transparent text-[15px] text-white/75 placeholder-white/20 outline-none resize-none overflow-hidden leading-[1.6] max-h-[120px]"
                 />
                 <button
                   onClick={handleSend}
                   disabled={!input.trim() || isStreaming}
-                  className={`shrink-0 w-[32px] h-[32px] rounded-lg flex items-center justify-center transition-all duration-200 mb-[1px] ${
+                  className={`shrink-0 w-[30px] h-[30px] rounded-lg flex items-center justify-center transition-all duration-200 mb-[2px] ${
                     input.trim() && !isStreaming
-                      ? "bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.2)] active:scale-[0.92]"
+                      ? "bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.15)] active:scale-[0.92]"
                       : "bg-white/[0.06]"
                   }`}
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
                     <path
                       d="M7 12V2M7 2L3 6M7 2L11 6"
                       stroke={input.trim() && !isStreaming ? "black" : "rgba(255,255,255,0.2)"}
@@ -709,11 +584,6 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-            <p className="text-center text-[11px] text-white/15 mt-2">
-              {isStreaming
-                ? "Generating..."
-                : "Describe what to build — Bloxr writes and pushes the Luau code"}
-            </p>
           </div>
         </main>
       </div>
