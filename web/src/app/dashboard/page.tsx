@@ -497,15 +497,14 @@ export default function Dashboard() {
                 transition={{ duration: 0.5 }}
                 className="flex-1 flex flex-col items-center justify-center text-center"
               >
-                <div className="w-12 h-12 rounded-full border border-white/[0.08] bg-white/[0.03] flex items-center justify-center mb-5">
-                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="white" opacity="0.35" />
-                  </svg>
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 rounded-full bg-white/10 blur-xl animate-pulse" />
+                  <Image src="/logo.png" alt="Bloxr" width={40} height={40} className="relative opacity-40" />
                 </div>
-                <p className="text-[20px] font-semibold text-white/80 mb-2">
+                <p className="text-[24px] font-semibold text-white/90 mb-2">
                   What do you want to build?
                 </p>
-                <p className="text-[15px] text-white/30 max-w-[340px] leading-relaxed">
+                <p className="text-[15px] text-white/40 max-w-[340px] leading-relaxed">
                   Describe a Roblox feature and Bloxr will build and push it to Studio.
                 </p>
               </motion.div>
@@ -542,9 +541,9 @@ export default function Dashboard() {
           </div>
 
           {/* Input */}
-          <div className="px-6 py-4 border-t border-white/[0.06] bg-[#0a0a0a]">
-            <div className="relative rounded-2xl border border-white/[0.08] bg-[#111] overflow-hidden">
-              <div className="flex items-end gap-3 px-4 py-3">
+          <div className="w-full px-6 py-4 border-t border-white/[0.06] bg-[#0a0a0a]">
+            <div className="relative rounded-2xl border border-white/10 bg-[#111] overflow-hidden shadow-lg">
+              <div className="flex items-end gap-3 px-4 py-3.5">
                 <textarea
                   ref={textareaRef}
                   rows={1}
