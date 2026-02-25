@@ -145,8 +145,8 @@ function SpinnerIcon({ size = 13 }: { size?: number }) {
 function StatusBubble({ statusKind }: { statusKind: "building" | "pushed" }) {
   if (statusKind === "pushed") {
     return (
-      <div className="flex items-center gap-2 px-4 py-[9px] rounded-2xl bg-[#1c1c20] text-[13px]">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1c1c20] text-[14px]">
+        <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
           <path
             d="M2 7L5.5 10.5L12 3.5"
             stroke="#10B981"
@@ -160,7 +160,7 @@ function StatusBubble({ statusKind }: { statusKind: "building" | "pushed" }) {
     );
   }
   return (
-    <div className="flex items-center gap-2 px-4 py-[9px] rounded-2xl bg-[#1c1c20] text-[13px] text-white/40">
+    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1c1c20] text-[14px] text-white/40">
       <SpinnerIcon />
       Building...
     </div>
@@ -489,23 +489,23 @@ export default function Dashboard() {
         {/* Chat area */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 md:px-10 py-8 flex flex-col gap-3 max-w-3xl mx-auto w-full">
+          <div className="flex-1 overflow-y-auto px-6 py-10 flex flex-col gap-6">
             {messages.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
-                className="flex-1 flex flex-col items-center justify-center text-center my-auto"
+                className="flex-1 flex flex-col items-center justify-center text-center"
               >
-                <div className="w-12 h-12 rounded-full border border-white/[0.08] bg-white/[0.03] flex items-center justify-center mb-4">
-                  <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="white" opacity="0.3" />
+                <div className="w-12 h-12 rounded-full border border-white/[0.08] bg-white/[0.03] flex items-center justify-center mb-5">
+                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="white" opacity="0.35" />
                   </svg>
                 </div>
                 <p className="text-[20px] font-semibold text-white/80 mb-2">
                   What do you want to build?
                 </p>
-                <p className="text-[14px] text-white/30 max-w-[340px] leading-[1.7]">
+                <p className="text-[15px] text-white/30 max-w-[340px] leading-relaxed">
                   Describe a Roblox feature and Bloxr will build and push it to Studio.
                 </p>
               </motion.div>
@@ -521,18 +521,15 @@ export default function Dashboard() {
                   {msg.role === "status" ? (
                     <StatusBubble statusKind={msg.statusKind!} />
                   ) : msg.role === "user" ? (
-                    /* User bubble — white pill */
-                    <div className="max-w-[75%] bg-white text-[#111] text-[15px] leading-[1.6] px-4 py-[10px] rounded-[20px] whitespace-pre-wrap font-[450]">
+                    /* User bubble — white, rounded-2xl */
+                    <div className="max-w-[60%] bg-white text-black text-[15px] leading-relaxed px-4 py-[10px] rounded-2xl whitespace-pre-wrap">
                       {msg.text}
                     </div>
                   ) : (
-                    /* AI bubble — dark gray */
-                    <div className="max-w-[85%] bg-[#1c1c20] text-white/80 text-[15px] leading-[1.7] px-4 py-[10px] rounded-2xl">
+                    /* AI — no bubble, plain text on dark background */
+                    <div className="max-w-[680px] text-[15px] leading-relaxed">
                       {msg.streaming && !msg.text ? (
-                        <div className="flex items-center gap-2 text-white/40 text-[13px]">
-                          <SpinnerIcon />
-                          Getting context...
-                        </div>
+                        <p className="text-white/40">Getting context...</p>
                       ) : (
                         renderMarkdown(msg.text)
                       )}
@@ -545,15 +542,9 @@ export default function Dashboard() {
           </div>
 
           {/* Input */}
-          <div className="px-4 md:px-10 py-4 border-t border-white/[0.06] bg-[#0a0a0a] max-w-3xl mx-auto w-full">
-            <div className="relative rounded-2xl border border-white/[0.08] bg-[#111115] overflow-hidden shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
-              <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+          <div className="px-6 py-4 border-t border-white/[0.06] bg-[#0a0a0a]">
+            <div className="relative rounded-2xl border border-white/[0.08] bg-[#111] overflow-hidden">
               <div className="flex items-end gap-3 px-4 py-3">
-                <div className="w-[18px] h-[18px] rounded-full bg-gradient-to-br from-white/70 to-white/30 flex items-center justify-center shrink-0 mb-[3px]">
-                  <svg width="9" height="9" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="black" />
-                  </svg>
-                </div>
                 <textarea
                   ref={textareaRef}
                   rows={1}
@@ -561,7 +552,7 @@ export default function Dashboard() {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Describe what you want to build..."
-                  className="flex-1 bg-transparent text-[15px] text-white/75 placeholder-white/20 outline-none resize-none overflow-hidden leading-[1.6] max-h-[120px]"
+                  className="flex-1 bg-transparent text-[15px] text-white/75 placeholder-white/25 outline-none resize-none overflow-hidden leading-relaxed max-h-[120px]"
                 />
                 <button
                   onClick={handleSend}
