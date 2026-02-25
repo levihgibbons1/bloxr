@@ -21,6 +21,108 @@ type Message = {
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
 
+// ── Markdown helpers ────────────────────────────────────────────────────────
+
+function renderInline(text: string, keyPrefix: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const pattern = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    if (match[2] !== undefined)
+      parts.push(<strong key={`${keyPrefix}-${match.index}`} className="font-semibold text-white/90">{match[2]}</strong>);
+    else if (match[3] !== undefined)
+      parts.push(<em key={`${keyPrefix}-${match.index}`} className="italic">{match[3]}</em>);
+    else if (match[4] !== undefined)
+      parts.push(<code key={`${keyPrefix}-${match.index}`} className="font-mono text-[12px] bg-white/[0.08] px-1.5 py-0.5 rounded text-white/85">{match[4]}</code>);
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return <>{parts}</>;
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  const blocks: React.ReactNode[] = [];
+  let bulletBuf: string[] = [];
+  let numBuf: string[] = [];
+  let key = 0;
+
+  const flushBullets = () => {
+    if (!bulletBuf.length) return;
+    blocks.push(
+      <ul key={key++} className="list-disc pl-5 space-y-0.5 my-1">
+        {bulletBuf.map((item, j) => (
+          <li key={j} className="text-[15px] leading-[1.7] text-white/75">
+            {renderInline(item, `ul-${key}-${j}`)}
+          </li>
+        ))}
+      </ul>
+    );
+    bulletBuf = [];
+  };
+
+  const flushNumbered = () => {
+    if (!numBuf.length) return;
+    blocks.push(
+      <ol key={key++} className="list-decimal pl-5 space-y-0.5 my-1">
+        {numBuf.map((item, j) => (
+          <li key={j} className="text-[15px] leading-[1.7] text-white/75">
+            {renderInline(item, `ol-${key}-${j}`)}
+          </li>
+        ))}
+      </ol>
+    );
+    numBuf = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (/^[-*] .+/.test(line)) {
+      flushNumbered();
+      bulletBuf.push(line.replace(/^[-*] /, ""));
+      continue;
+    }
+
+    if (/^\d+\. .+/.test(line)) {
+      flushBullets();
+      numBuf.push(line.replace(/^\d+\. /, ""));
+      continue;
+    }
+
+    flushBullets();
+    flushNumbered();
+
+    const headingMatch = line.match(/^(#{1,3}) (.+)/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      blocks.push(
+        <p key={key++} className={`font-semibold text-white/90 mt-3 mb-0.5 ${level === 1 ? "text-[16px]" : "text-[15px]"}`}>
+          {renderInline(headingMatch[2], `h-${key}`)}
+        </p>
+      );
+      continue;
+    }
+
+    if (line.trim() === "") {
+      if (blocks.length) blocks.push(<div key={key++} className="h-2" />);
+      continue;
+    }
+
+    blocks.push(
+      <p key={key++} className="text-[15px] leading-[1.7] text-white/80">
+        {renderInline(line, `p-${key}`)}
+      </p>
+    );
+  }
+
+  flushBullets();
+  flushNumbered();
+  return <>{blocks}</>;
+}
+
 // ── Shared components ────────────────────────────────────────────────────────
 
 function SpinnerIcon({ size = 13 }: { size?: number }) {
@@ -53,7 +155,7 @@ function StatusBubble({ statusKind }: { statusKind: "building" | "pushed" }) {
             strokeLinejoin="round"
           />
         </svg>
-        <span className="text-[#10B981] font-medium">Pushed to Studio</span>
+        <span className="text-[#10B981] font-medium">1 action completed</span>
       </div>
     );
   }
@@ -432,7 +534,7 @@ export default function Dashboard() {
                           Getting context...
                         </div>
                       ) : (
-                        msg.text
+                        renderMarkdown(msg.text)
                       )}
                     </div>
                   )}
