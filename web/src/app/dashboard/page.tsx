@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -164,8 +164,10 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const supabase = createClient();
 
@@ -356,6 +358,16 @@ export default function Dashboard() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    setAttachments((prev) => [...prev, ...files.map((f) => f.name)]);
+    e.target.value = "";
+  }, []);
+
+  const removeAttachment = useCallback((i: number) => {
+    setAttachments((prev) => prev.filter((_, idx) => idx !== i));
+  }, []);
+
   const maskedToken = syncToken
     ? syncToken.slice(0, 4) + "●".repeat(10) + syncToken.slice(-4)
     : null;
@@ -364,7 +376,7 @@ export default function Dashboard() {
     <div className="flex h-screen w-full overflow-hidden" style={{ background: "#080808" }}>
 
       {/* ── SIDEBAR ── */}
-      <div className="hidden md:flex flex-col w-[260px] shrink-0 border-r border-white/[0.06]" style={{ background: "#0c0c0c" }}>
+      <div className="hidden md:flex flex-col w-[300px] shrink-0 border-r border-white/[0.06]" style={{ background: "#0c0c0c" }}>
 
         {/* Logo */}
         <div className="flex items-center px-5 h-[60px] border-b border-white/[0.06]">
@@ -408,20 +420,9 @@ export default function Dashboard() {
               </span>
             </div>
 
-            <p className="text-[11px] text-white/20 px-1 leading-relaxed mb-3">
+            <p className="text-[11px] text-white/20 px-1 leading-relaxed">
               Open Roblox Studio and activate the Bloxr plugin to connect.
             </p>
-
-            <button
-              onClick={() => setConnected((c) => !c)}
-              className={`w-full rounded-xl py-2 text-[13px] font-semibold transition-all duration-200 ${
-                connected
-                  ? "border border-white/10 text-white/40 hover:border-white/20 hover:text-white/60"
-                  : "bg-[#4F8EF7]/10 border border-[#4F8EF7]/30 text-[#4F8EF7] hover:bg-[#4F8EF7]/15"
-              }`}
-            >
-              {connected ? "Disconnect" : "Connect Studio"}
-            </button>
           </div>
 
           {/* Token */}
@@ -486,23 +487,23 @@ export default function Dashboard() {
         </div>
 
         {/* User row */}
-        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-3">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4F8EF7]/30 to-[#4F8EF7]/10 border border-[#4F8EF7]/20 flex items-center justify-center shrink-0">
-            <span className="text-[11px] text-[#4F8EF7] font-bold uppercase">
+        <div className="px-4 py-4 border-t border-white/[0.06] flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#4F8EF7]/30 to-[#4F8EF7]/10 border border-[#4F8EF7]/20 flex items-center justify-center shrink-0">
+            <span className="text-[14px] text-[#4F8EF7] font-bold uppercase">
               {user?.email?.[0] ?? "U"}
             </span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-white/70 text-[12px] font-semibold truncate">{user?.email?.split("@")[0] ?? "User"}</p>
-            <p className="text-white/25 text-[11px] truncate">{user?.email ?? ""}</p>
+            <p className="text-white/80 text-[13px] font-semibold truncate">{user?.email?.split("@")[0] ?? "User"}</p>
+            <p className="text-white/30 text-[12px] truncate">{user?.email ?? ""}</p>
           </div>
           <button
-            onClick={handleLogout}
-            title="Sign out"
-            className="text-white/20 hover:text-white/60 transition-colors shrink-0"
+            title="Settings"
+            className="text-white/25 hover:text-white/70 transition-colors shrink-0"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M11 11l3-3-3-3M14 8H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+              <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M17 10a7 7 0 01-.07 1l1.53 1.19a.4.4 0 01.09.5l-1.45 2.51a.4.4 0 01-.48.17l-1.8-.72a7.1 7.1 0 01-.87.5l-.27 1.91a.39.39 0 01-.39.34H8.71a.39.39 0 01-.39-.34l-.27-1.91a7.1 7.1 0 01-.87-.5l-1.8.72a.4.4 0 01-.48-.17L3.45 12.7a.4.4 0 01.09-.5L5.07 11A7.12 7.12 0 015 10c0-.34.02-.68.07-1L3.54 7.81a.4.4 0 01-.09-.5l1.45-2.51a.4.4 0 01.48-.17l1.8.72a7.1 7.1 0 01.87-.5l.27-1.91A.39.39 0 018.71 2.6h2.9c.2 0 .36.14.39.34l.27 1.91c.3.14.6.31.87.5l1.8-.72a.4.4 0 01.48.17l1.45 2.51a.4.4 0 01-.09.5L15.93 9c.05.32.07.66.07 1z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>
@@ -515,7 +516,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between px-6 h-[60px] border-b border-white/[0.06] shrink-0">
           <div>
             <p className="text-white text-[14px] font-semibold">Chat</p>
-            <p className="text-white/30 text-[12px]">AI Roblox developer</p>
+            <p className="text-white/30 text-[12px]">Powered by Bloxr</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -664,7 +665,62 @@ export default function Dashboard() {
             className="rounded-2xl border border-white/[0.08] focus-within:border-white/[0.14] transition-colors duration-200"
             style={{ background: "#111" }}
           >
+            {/* Attachment chips */}
+            <AnimatePresence>
+              {attachments.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="flex flex-wrap gap-2 px-4 pt-3"
+                >
+                  {attachments.map((name, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] text-[12px] text-white/50"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                        <rect x="2" y="1" width="12" height="14" rx="2" stroke="currentColor" strokeWidth="1.3" />
+                        <path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                      </svg>
+                      <span className="max-w-[140px] truncate">{name}</span>
+                      <button
+                        onClick={() => removeAttachment(i)}
+                        className="text-white/20 hover:text-white/60 transition-colors ml-0.5"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div className="flex items-end gap-2.5 px-3 pt-3 pb-3">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf,.txt,.lua,.rbxl,.rbxlx"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              {/* Plus / attach button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border border-white/[0.08] hover:border-white/[0.18] hover:bg-white/[0.05] text-white/30 hover:text-white/70 transition-all duration-200"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+
               <textarea
                 ref={textareaRef}
                 rows={1}
