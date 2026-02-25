@@ -19,12 +19,20 @@ type ScriptInfo = {
   code: string;
 };
 
+type PartInfo = {
+  name: string;
+  className: string;
+  properties: Record<string, unknown>;
+};
+
 type Message = {
-  role: "user" | "ai";
+  role: "user" | "ai" | "status";
   text: string;
   streaming?: boolean;
-  codePushed?: boolean;
   scriptInfo?: ScriptInfo;
+  partInfo?: PartInfo;
+  // "status" role fields
+  statusKind?: "building" | "pushed";
 };
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
@@ -139,31 +147,53 @@ function renderMarkdown(text: string): React.ReactNode {
 
 // ────────────────────────────────────────────────────────────────────────────
 
-function ThinkingDots() {
+// Spinning Bloxr star used in status states
+function SpinnerIcon({ size = 14, opacity = 0.5 }: { size?: number; opacity?: number }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-3 text-[13px] text-white/40">
-      <span>Bloxr is thinking</span>
-      <span className="inline-flex items-end gap-[3px]">
-        <span
-          className="w-[5px] h-[5px] rounded-full bg-white/30"
-          style={{ animation: "thinking 1.2s ease-in-out 0s infinite" }}
-        />
-        <span
-          className="w-[5px] h-[5px] rounded-full bg-white/30"
-          style={{ animation: "thinking 1.2s ease-in-out 0.2s infinite" }}
-        />
-        <span
-          className="w-[5px] h-[5px] rounded-full bg-white/30"
-          style={{ animation: "thinking 1.2s ease-in-out 0.4s infinite" }}
-        />
-      </span>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{ animation: "spin 1.1s linear infinite", flexShrink: 0 }}
+    >
+      <path
+        d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z"
+        fill={`rgba(255,255,255,${opacity})`}
+      />
+    </svg>
+  );
+}
+
+// Separate status bubble rendered below the main AI response
+function StatusBubble({ statusKind }: { statusKind: "building" | "pushed" }) {
+  if (statusKind === "pushed") {
+    return (
+      <div className="inline-flex items-center gap-2 px-3 py-[7px] rounded-xl bg-[#10B981]/[0.08] border border-[#10B981]/20 text-[#10B981] text-[13px] font-medium">
+        <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+          <path d="M2 7L5.5 10.5L12 3.5" stroke="#10B981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Pushed to Studio
+      </div>
+    );
+  }
+  return (
+    <div className="inline-flex items-center gap-2 px-3 py-[7px] rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/40 text-[13px]">
+      <SpinnerIcon size={13} opacity={0.4} />
+      Building...
     </div>
   );
 }
 
 function AIMessageContent({ msg }: { msg: Message }) {
+  // Initial state: no text yet — show spinner + "Getting context..."
   if (msg.streaming && !msg.text) {
-    return <ThinkingDots />;
+    return (
+      <div className="flex items-center gap-2.5 py-0.5 text-[13px] text-white/40">
+        <SpinnerIcon size={14} opacity={0.45} />
+        Getting context...
+      </div>
+    );
   }
 
   return (
@@ -174,16 +204,12 @@ function AIMessageContent({ msg }: { msg: Message }) {
         </div>
       )}
 
+      {/* Script: syntax-highlighted code block */}
       {msg.scriptInfo && (
         <div className="rounded-xl overflow-hidden border border-white/[0.08]">
-          {/* Code block header */}
           <div className="flex items-center justify-between px-4 py-2 bg-white/[0.03] border-b border-white/[0.06]">
-            <span className="text-[11px] font-mono text-white/40">
-              {msg.scriptInfo.name}.luau
-            </span>
-            <span className="text-[11px] text-white/25">
-              {msg.scriptInfo.scriptType}
-            </span>
+            <span className="text-[11px] font-mono text-white/40">{msg.scriptInfo.name}.luau</span>
+            <span className="text-[11px] text-white/25">{msg.scriptInfo.scriptType}</span>
           </div>
           <SyntaxHighlighter
             language="lua"
@@ -196,31 +222,41 @@ function AIMessageContent({ msg }: { msg: Message }) {
         </div>
       )}
 
+      {/* Script info chip */}
       {msg.scriptInfo && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Script info card */}
-          <div className="flex items-center gap-1.5 text-[12px] text-white/40 bg-white/[0.03] rounded-lg px-3 py-1.5 border border-white/[0.06]">
-            <span>📄</span>
-            <span className="font-mono">{msg.scriptInfo.name}</span>
-            <span className="text-white/20 mx-0.5">→</span>
-            <span>{msg.scriptInfo.targetService}</span>
-          </div>
+        <div className="flex items-center gap-1.5 text-[12px] text-white/40 bg-white/[0.03] rounded-lg px-3 py-1.5 border border-white/[0.06] w-fit">
+          <span>📄</span>
+          <span className="font-mono">{msg.scriptInfo.name}</span>
+          <span className="text-white/20 mx-0.5">→</span>
+          <span>{msg.scriptInfo.targetService}</span>
+        </div>
+      )}
 
-          {/* Pushed to Studio badge */}
-          {msg.codePushed && (
-            <div className="flex items-center gap-1.5 text-[12px] text-[#10B981] bg-[#10B981]/[0.08] rounded-lg px-3 py-1.5 border border-[#10B981]/20">
-              <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-                <path
-                  d="M2 7L5.5 10.5L12 3.5"
-                  stroke="#10B981"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Pushed to Studio
-            </div>
-          )}
+      {/* Part: properties table */}
+      {msg.partInfo && (
+        <div className="rounded-xl overflow-hidden border border-white/[0.08]">
+          <div className="flex items-center justify-between px-4 py-2 bg-white/[0.03] border-b border-white/[0.06]">
+            <span className="text-[11px] font-mono text-white/40">{msg.partInfo.name}</span>
+            <span className="text-[11px] text-white/25">{msg.partInfo.className}</span>
+          </div>
+          <div className="px-4 py-3 flex flex-col gap-1.5">
+            {Object.entries(msg.partInfo.properties).map(([k, v]) => (
+              <div key={k} className="flex items-center gap-3 text-[12px]">
+                <span className="text-white/30 font-mono w-24 shrink-0">{k}</span>
+                <span className="text-white/65 font-mono">{JSON.stringify(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Part info chip */}
+      {msg.partInfo && (
+        <div className="flex items-center gap-1.5 text-[12px] text-white/40 bg-white/[0.03] rounded-lg px-3 py-1.5 border border-white/[0.06] w-fit">
+          <span>🧱</span>
+          <span className="font-mono">{msg.partInfo.name}</span>
+          <span className="text-white/20 mx-0.5">·</span>
+          <span>{msg.partInfo.className}</span>
         </div>
       )}
     </div>
@@ -343,20 +379,31 @@ export default function Dashboard() {
           try {
             const json = JSON.parse(payload) as {
               delta?: string;
+              building?: boolean;
               codePushed?: boolean;
               error?: string;
             };
 
             if (json.error) throw new Error(json.error);
 
+            if (json.building) {
+              // Append a new "Building..." status bubble after the AI response
+              setMessages((prev) => [
+                ...prev,
+                { role: "status", text: "", statusKind: "building" },
+              ]);
+            }
+
             if (json.codePushed) {
-              // Mark codePushed on the last AI message
+              // Flip the last status bubble to "pushed"
               setMessages((prev) => {
                 const updated = [...prev];
-                updated[updated.length - 1] = {
-                  ...updated[updated.length - 1],
-                  codePushed: true,
-                };
+                for (let i = updated.length - 1; i >= 0; i--) {
+                  if (updated[i].role === "status") {
+                    updated[i] = { ...updated[i], statusKind: "pushed" };
+                    break;
+                  }
+                }
                 return updated;
               });
             }
@@ -392,32 +439,42 @@ export default function Dashboard() {
       // Parse JSON block from full response and build final message
       const jsonMatch = fullText.match(/```json\s*([\s\S]*?)```/);
       let scriptInfo: ScriptInfo | undefined;
+      let partInfo: PartInfo | undefined;
       let displayText = fullText;
 
       if (jsonMatch) {
         try {
-          const parsed = JSON.parse(jsonMatch[1].trim()) as ScriptInfo;
-          scriptInfo = {
-            name: parsed.name,
-            scriptType: parsed.scriptType,
-            targetService: parsed.targetService,
-            code: parsed.code,
-          };
+          const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>;
           displayText = fullText.replace(/```json[\s\S]*?```/, "").trim();
+
+          if (parsed.type === "part") {
+            partInfo = {
+              name: parsed.name as string,
+              className: parsed.className as string,
+              properties: (parsed.properties ?? {}) as Record<string, unknown>,
+            };
+          } else {
+            scriptInfo = {
+              name: parsed.name as string,
+              scriptType: parsed.scriptType as string,
+              targetService: parsed.targetService as string,
+              code: parsed.code as string,
+            };
+          }
         } catch {
           // Malformed JSON block — keep full text as-is
         }
       }
 
+      // Find the last "ai" message (status bubbles may have been appended after it)
       setMessages((prev) => {
         const updated = [...prev];
-        const last = updated[updated.length - 1];
-        updated[updated.length - 1] = {
-          role: "ai",
-          text: displayText,
-          scriptInfo,
-          codePushed: last.codePushed,
-        };
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].role === "ai") {
+            updated[i] = { role: "ai", text: displayText, scriptInfo, partInfo };
+            break;
+          }
+        }
         return updated;
       });
 
@@ -595,7 +652,9 @@ export default function Dashboard() {
                   transition={{ duration: 0.2 }}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  {msg.role === "user" ? (
+                  {msg.role === "status" ? (
+                    <StatusBubble statusKind={msg.statusKind!} />
+                  ) : msg.role === "user" ? (
                     <div className="max-w-[85%] md:max-w-[72%] rounded-2xl rounded-br-sm px-4 py-3 bg-[#4F8EF7] text-white text-[14px] leading-[1.65] whitespace-pre-wrap">
                       {msg.text}
                     </div>

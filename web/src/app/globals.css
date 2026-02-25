@@ -63,6 +63,11 @@ body {
   50% { opacity: 1; transform: translateY(-2px); }
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 .noise-overlay::before {
   content: '';
   position: absolute;
