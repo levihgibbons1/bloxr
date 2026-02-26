@@ -77,7 +77,9 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
   res.flushHeaders();
 
   let fullText = "";
+  let jsonMatch: RegExpMatchArray | null = null;
 
+  // ── 1. Anthropic stream — isolated try so post-stream logic is unconditional ──
   try {
     const stream = client.messages.stream({
       model: "claude-sonnet-4-5",
@@ -98,76 +100,87 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    console.log("[chat] full response length:", fullText.length);
-    console.log("[chat] full response:\n", fullText);
-
-    // After streaming, attempt to parse a JSON code block
-    const jsonMatch = fullText.match(/```json\s*([\s\S]*?)```/);
-    if (!jsonMatch) {
-      console.log("[chat] no JSON code block found in response — skipping sync_queue insert");
-    } else {
-      console.log("[chat] JSON block found:", jsonMatch[1].trim());
-      // Signal to client that we're about to insert
-      res.write(`data: ${JSON.stringify({ building: true })}\n\n`);
-      (res as unknown as { flush?: () => void }).flush?.();
-      try {
-        const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>;
-
-        const id = crypto.randomUUID();
-        let payload: Record<string, unknown>;
-
-        if (parsed.type === "part") {
-          console.log("[chat] parsed OK — type: part, name:", parsed.name, "className:", parsed.className);
-          payload = {
-            type: "part",
-            name: parsed.name,
-            className: parsed.className,
-            properties: parsed.properties,
-          };
-        } else {
-          console.log("[chat] parsed OK — type: script, scriptType:", parsed.scriptType, "name:", parsed.name, "targetService:", parsed.targetService);
-          payload = {
-            type: "script",
-            scriptType: parsed.scriptType,
-            targetService: parsed.targetService,
-            name: parsed.name,
-            code: parsed.code,
-          };
-        }
-
-        console.log("[chat] inserting into sync_queue — id:", id, "userId:", userId, "payload:", JSON.stringify(payload));
-
-        const { error } = await supabase.from("sync_queue").insert({
-          id,
-          user_id: userId,
-          payload,
-        });
-
-        if (error) {
-          console.error("[chat] sync_queue insert FAILED:", error.message, error);
-          res.write(`data: ${JSON.stringify({ codePushed: false })}\n\n`);
-          (res as unknown as { flush?: () => void }).flush?.();
-        } else {
-          console.log("[chat] sync_queue insert succeeded — id:", id);
-          res.write(`data: ${JSON.stringify({ codePushed: true })}\n\n`);
-          (res as unknown as { flush?: () => void }).flush?.();
-        }
-      } catch (parseErr) {
-        console.error("[chat] JSON parse failed:", parseErr, "\nRaw block:", jsonMatch[1].trim());
-        res.write(`data: ${JSON.stringify({ codePushed: false })}\n\n`);
-        (res as unknown as { flush?: () => void }).flush?.();
-      }
-    }
-
-    res.write("data: [DONE]\n\n");
-    (res as unknown as { flush?: () => void }).flush?.();
-    res.end();
+    jsonMatch = fullText.match(/```json\s*([\s\S]*?)```/);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
     (res as unknown as { flush?: () => void }).flush?.();
     res.end();
+    return;
   }
+
+  // ── 2. Post-stream — entirely outside try/catch ──
+
+  console.log("[chat] full response length:", fullText.length);
+  console.log("[chat] full response:\n", fullText);
+
+  if (!jsonMatch) {
+    console.log("[chat] no JSON code block found in response — skipping sync_queue insert");
+    res.write("data: [DONE]\n\n");
+    (res as unknown as { flush?: () => void }).flush?.();
+    res.end();
+    return;
+  }
+
+  console.log("[chat] JSON block found:", jsonMatch[1].trim());
+
+  // Step 1: signal building immediately and unconditionally
+  res.write(`data: ${JSON.stringify({ building: true })}\n\n`);
+  (res as unknown as { flush?: () => void }).flush?.();
+
+  // Step 2: parse + insert
+  try {
+    const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>;
+
+    const id = crypto.randomUUID();
+    let payload: Record<string, unknown>;
+
+    if (parsed.type === "part") {
+      console.log("[chat] parsed OK — type: part, name:", parsed.name, "className:", parsed.className);
+      payload = {
+        type: "part",
+        name: parsed.name,
+        className: parsed.className,
+        properties: parsed.properties,
+      };
+    } else {
+      console.log("[chat] parsed OK — type: script, scriptType:", parsed.scriptType, "name:", parsed.name, "targetService:", parsed.targetService);
+      payload = {
+        type: "script",
+        scriptType: parsed.scriptType,
+        targetService: parsed.targetService,
+        name: parsed.name,
+        code: parsed.code,
+      };
+    }
+
+    console.log("[chat] inserting into sync_queue — id:", id, "userId:", userId, "payload:", JSON.stringify(payload));
+
+    const { error } = await supabase.from("sync_queue").insert({
+      id,
+      user_id: userId,
+      payload,
+    });
+
+    if (error) {
+      console.error("[chat] sync_queue insert FAILED:", error.message, error);
+      res.write(`data: ${JSON.stringify({ codePushed: false })}\n\n`);
+      (res as unknown as { flush?: () => void }).flush?.();
+    } else {
+      console.log("[chat] sync_queue insert succeeded — id:", id);
+      res.write(`data: ${JSON.stringify({ codePushed: true })}\n\n`);
+      (res as unknown as { flush?: () => void }).flush?.();
+    }
+  } catch (parseErr) {
+    console.error("[chat] JSON parse failed:", parseErr, "\nRaw block:", jsonMatch[1].trim());
+    res.write(`data: ${JSON.stringify({ codePushed: false })}\n\n`);
+    (res as unknown as { flush?: () => void }).flush?.();
+  }
+
+  // Step 3: done
+  res.write("data: [DONE]\n\n");
+  (res as unknown as { flush?: () => void }).flush?.();
+  res.end();
 });
 
 export default router;
