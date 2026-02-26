@@ -14,7 +14,7 @@ import type { User } from "@supabase/supabase-js";
 /** UI message — the 4-state machine */
 type ChatMsg = {
   id: string;
-  kind: "user" | "thinking" | "responding" | "working" | "done";
+  kind: "user" | "thinking" | "responding" | "working" | "done" | "studio_error";
   text?: string;
 };
 
@@ -49,17 +49,13 @@ const EXAMPLE_PROMPTS = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Strip all code fences — json or otherwise — from text */
-function stripCode(text: string): string {
+/** Strip all code fences (complete and partial/open at end) from text */
+function stripAllFences(text: string): string {
   return text
     .replace(/```json[\s\S]*?```/g, "")
     .replace(/```[\s\S]*?```/g, "")
+    .replace(/```[\s\S]*$/, "")
     .trim();
-}
-
-/** Strip partial/streaming json block that hasn't closed yet */
-function stripStreamingJson(text: string): string {
-  return text.replace(/```json[\s\S]*$/, "").trimEnd();
 }
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode {
@@ -144,7 +140,7 @@ function renderMarkdown(text: string): React.ReactNode {
 
 // ── Bubble Components ─────────────────────────────────────────────────────────
 
-function SpinnerBubble({ label }: { label: string }) {
+function PulsingText({ label }: { label: string }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -153,23 +149,13 @@ function SpinnerBubble({ label }: { label: string }) {
       transition={{ duration: 0.18 }}
       className="flex justify-start"
     >
-      <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: "#1c1c20" }}>
-        <Image
-          src="/logo.png"
-          alt="Bloxr"
-          width={24}
-          height={24}
-          className="animate-spin object-contain shrink-0"
-          style={{ animationDuration: "1.2s" }}
-        />
-        <motion.span
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="text-[15px] text-white/70"
-        >
-          {label}
-        </motion.span>
-      </div>
+      <motion.span
+        animate={{ opacity: [0.4, 1, 0.4] }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+        className="text-[14px] text-white/40"
+      >
+        {label}
+      </motion.span>
     </motion.div>
   );
 }
@@ -182,7 +168,7 @@ function DoneBubble() {
       transition={{ duration: 0.18 }}
       className="flex justify-start"
     >
-      <div className="inline-flex rounded-2xl px-4 py-3 items-center gap-3" style={{ background: "#1c1c20" }}>
+      <div className="inline-flex items-center gap-2">
         <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ duration: 0.35 }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -227,6 +213,10 @@ export default function Dashboard() {
   const thinkingIdRef = useRef<string | null>(null);
   const respondingIdRef = useRef<string | null>(null);
   const workingIdRef = useRef<string | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const manualStopRef = useRef(false);
+  const studioTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -387,6 +377,13 @@ export default function Dashboard() {
     });
   }, []);
 
+  // ── Stop streaming ────────────────────────────────────────────────────────
+
+  const handleStop = useCallback(() => {
+    manualStopRef.current = true;
+    readerRef.current?.cancel().catch(() => {});
+  }, []);
+
   // ── Send handler (new clean state machine) ───────────────────────────────
 
   const handleSend = async (textOverride?: string) => {
@@ -430,6 +427,17 @@ export default function Dashboard() {
     const token = localStorage.getItem("bloxr_sync_token");
     let fullText = "";
 
+    // Setup abort controller + rolling 30s timeout
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    manualStopRef.current = false;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const resetChunkTimeout = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => abortController.abort(), 30000);
+    };
+
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/api/chat`, {
         method: "POST",
@@ -438,17 +446,22 @@ export default function Dashboard() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ message: text, conversationHistory }),
+        signal: abortController.signal,
       });
 
       if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`);
 
       const reader = res.body.getReader();
+      readerRef.current = reader;
       const decoder = new TextDecoder();
       let buffer = "";
+
+      resetChunkTimeout(); // start rolling timeout before first read
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        resetChunkTimeout(); // reset on each received chunk
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split("\n");
@@ -459,22 +472,21 @@ export default function Dashboard() {
           const payload = line.slice(6).trim();
           if (payload === "[DONE]") break;
 
-          try {
-            const json = JSON.parse(payload) as {
-              delta?: string;
-              building?: boolean;
-              codePushed?: boolean;
-              error?: string;
-            };
+          // Parse JSON — skip only on malformed chunks, let logic errors propagate
+          let json: { delta?: string; building?: boolean; codePushed?: boolean; error?: string } | null = null;
+          try { json = JSON.parse(payload); } catch { continue; }
+          if (!json) continue;
 
-            if (json.error) throw new Error(json.error);
+          // Server-fatal error — propagate to outer catch to show in response bubble
+          if (json.error) throw new Error(json.error);
 
-            if (json.delta) {
-              fullText += json.delta;
-              const displayText = stripStreamingJson(fullText);
+          if (json.delta) {
+            fullText += json.delta;
+            const displayText = stripAllFences(fullText);
 
-              if (!respondingIdRef.current) {
-                // ── State 2: first chunk — swap thinking → responding ──
+            if (!respondingIdRef.current) {
+              if (displayText) {
+                // ── State 2: first non-empty text — swap thinking → responding ──
                 const rId = crypto.randomUUID();
                 respondingIdRef.current = rId;
                 const capturedTId = thinkingIdRef.current;
@@ -483,69 +495,114 @@ export default function Dashboard() {
                   ...prev.filter((m) => m.id !== capturedTId),
                   { id: rId, kind: "responding", text: displayText },
                 ]);
-              } else {
+              }
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === respondingIdRef.current ? { ...m, text: displayText } : m
+                )
+              );
+            }
+          }
+
+          if (json.building) {
+            // ── State 3: working bubble appears ──
+            const wId = crypto.randomUUID();
+            workingIdRef.current = wId;
+            setMessages((prev) => [...prev, { id: wId, kind: "working" }]);
+            // 60s timeout — if Studio never confirms, show error
+            if (studioTimeoutRef.current) clearTimeout(studioTimeoutRef.current);
+            studioTimeoutRef.current = setTimeout(() => {
+              const capturedWId = workingIdRef.current;
+              if (capturedWId) {
+                workingIdRef.current = null;
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === respondingIdRef.current ? { ...m, text: displayText } : m
+                  prev.map((m) => m.id === capturedWId
+                    ? { ...m, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" }
+                    : m
                   )
                 );
               }
-            }
+            }, 60000);
+          }
 
-            if (json.building) {
-              // ── State 3: working bubble appears ──
-              const wId = crypto.randomUUID();
-              workingIdRef.current = wId;
-              setMessages((prev) => [...prev, { id: wId, kind: "working" }]);
-            }
+          if (json.codePushed === true && workingIdRef.current) {
+            // ── State 4a: working → done ──
+            if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
+            const capturedWId = workingIdRef.current;
+            workingIdRef.current = null;
+            setMessages((prev) =>
+              prev.map((m) => m.id === capturedWId ? { ...m, kind: "done" } : m)
+            );
+          }
 
-            if (json.codePushed && workingIdRef.current) {
-              // ── State 4: working → done ──
-              const capturedWId = workingIdRef.current;
-              setMessages((prev) =>
-                prev.map((m) => m.id === capturedWId ? { ...m, kind: "done" } : m)
-              );
-            }
-          } catch {
-            // Malformed SSE chunk — skip
+          if (json.codePushed === false && workingIdRef.current) {
+            // ── State 4b: sync failed → studio error ──
+            if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
+            const capturedWId = workingIdRef.current;
+            workingIdRef.current = null;
+            setMessages((prev) =>
+              prev.map((m) => m.id === capturedWId
+                ? { ...m, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" }
+                : m
+              )
+            );
           }
         }
       }
     } catch (err) {
-      const errText = err instanceof Error ? err.message : "Something went wrong.";
-      fullText = errText;
-      // No responding bubble yet — swap thinking out for error
-      if (!respondingIdRef.current) {
-        const rId = crypto.randomUUID();
-        respondingIdRef.current = rId;
-        const capturedTId = thinkingIdRef.current;
-        thinkingIdRef.current = null;
-        setMessages((prev) => [
-          ...prev.filter((m) => m.id !== capturedTId),
-          { id: rId, kind: "responding", text: errText },
-        ]);
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      if (isAbort && manualStopRef.current) {
+        // User clicked stop — keep whatever streamed, no error shown
       } else {
-        setMessages((prev) =>
-          prev.map((m) => m.id === respondingIdRef.current ? { ...m, text: errText } : m)
-        );
+        const errText = isAbort
+          ? "Something went wrong — try again"
+          : err instanceof Error ? err.message : "Something went wrong.";
+        fullText = errText;
+        if (!respondingIdRef.current) {
+          const rId = crypto.randomUUID();
+          respondingIdRef.current = rId;
+          const capturedTId = thinkingIdRef.current;
+          thinkingIdRef.current = null;
+          setMessages((prev) => [
+            ...prev.filter((m) => m.id !== capturedTId),
+            { id: rId, kind: "responding", text: errText },
+          ]);
+        } else {
+          setMessages((prev) =>
+            prev.map((m) => m.id === respondingIdRef.current ? { ...m, text: errText } : m)
+          );
+        }
       }
     } finally {
-      const finalText = stripCode(fullText);
+      if (timeoutId) clearTimeout(timeoutId);
+      if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
+      readerRef.current = null;
+      abortControllerRef.current = null;
+
+      const finalText = stripAllFences(fullText);
       const chatId = activeChatIdRef.current;
       const capturedRId = respondingIdRef.current;
       const capturedTId = thinkingIdRef.current;
+      const capturedWId = workingIdRef.current; // still set if stream ended before codePushed
 
-      // Finalize: remove any lingering thinking bubble, clean json from responding text
+      // Finalize: drop transient bubbles, strip fences, handle stuck working
       let capturedFinal: ChatMsg[] = [];
       setMessages((prev) => {
         const updated = prev
-          .filter((m) => m.id !== capturedTId) // remove thinking if still present (error path)
-          .map((m) => m.id === capturedRId ? { ...m, text: finalText } : m);
+          .filter((m) => m.id !== capturedTId)
+          .filter((m) => !(m.id === capturedRId && !finalText)) // drop empty responding bubble
+          .map((m) => {
+            if (m.id === capturedRId && finalText) return { ...m, text: finalText };
+            if (m.id === capturedWId) return { ...m, kind: "studio_error" as const, text: "Couldn't reach Studio — is the plugin running?" };
+            return m;
+          });
         capturedFinal = updated;
         return updated;
       });
 
       thinkingIdRef.current = null;
+      workingIdRef.current = null;
       setIsStreaming(false);
 
       setConversationHistory((prev) => [
@@ -882,7 +939,7 @@ export default function Dashboard() {
                       )}
 
                       {/* ThinkingBubble */}
-                      {msg.kind === "thinking" && <SpinnerBubble label="Thinking..." />}
+                      {msg.kind === "thinking" && <PulsingText label="Thinking..." />}
 
                       {/* ResponseBubble */}
                       {msg.kind === "responding" && (
@@ -894,10 +951,15 @@ export default function Dashboard() {
                       )}
 
                       {/* WorkingBubble */}
-                      {msg.kind === "working" && <SpinnerBubble label="Working..." />}
+                      {msg.kind === "working" && <PulsingText label="Working..." />}
 
                       {/* DoneBubble */}
                       {msg.kind === "done" && <DoneBubble />}
+
+                      {/* StudioError */}
+                      {msg.kind === "studio_error" && (
+                        <p className="text-[14px] text-white/40">{msg.text}</p>
+                      )}
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -944,15 +1006,26 @@ export default function Dashboard() {
                 className="flex-1 bg-transparent text-[14px] text-white/90 placeholder:text-white/25 outline-none resize-none leading-relaxed py-1"
                 style={{ maxHeight: 140 }}
               />
-              <button
-                onClick={() => handleSend()}
-                disabled={!input.trim() || isStreaming}
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 ${input.trim() && !isStreaming ? "bg-white hover:bg-white/90 active:scale-95" : "bg-white/[0.06] cursor-not-allowed"}`}
-              >
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 12V4M8 4L4.5 7.5M8 4L11.5 7.5" stroke={input.trim() && !isStreaming ? "#000" : "rgba(255,255,255,0.25)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
+              {isStreaming ? (
+                <button
+                  onClick={handleStop}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border border-red-500/30 hover:bg-red-500/10 transition-all duration-200 active:scale-95"
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <rect width="10" height="10" rx="1.5" fill="rgba(239,68,68,0.85)" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleSend()}
+                  disabled={!input.trim()}
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 ${input.trim() ? "bg-white hover:bg-white/90 active:scale-95" : "bg-white/[0.06] cursor-not-allowed"}`}
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 12V4M8 4L4.5 7.5M8 4L11.5 7.5" stroke={input.trim() ? "#000" : "rgba(255,255,255,0.25)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </div>

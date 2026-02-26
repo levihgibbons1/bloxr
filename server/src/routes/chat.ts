@@ -145,6 +145,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 
         if (error) {
           console.error("[chat] sync_queue insert FAILED:", error.message, error);
+          res.write(`data: ${JSON.stringify({ codePushed: false })}\n\n`);
+          (res as unknown as { flush?: () => void }).flush?.();
         } else {
           console.log("[chat] sync_queue insert succeeded — id:", id);
           res.write(`data: ${JSON.stringify({ codePushed: true })}\n\n`);
@@ -156,10 +158,12 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     }
 
     res.write("data: [DONE]\n\n");
+    (res as unknown as { flush?: () => void }).flush?.();
     res.end();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    (res as unknown as { flush?: () => void }).flush?.();
     res.end();
   }
 });
