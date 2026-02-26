@@ -127,6 +127,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
   // Step 1: signal building immediately and unconditionally
   res.write(`data: ${JSON.stringify({ building: true })}\n\n`);
   (res as unknown as { flush?: () => void }).flush?.();
+  await new Promise(resolve => setTimeout(resolve, 800));
 
   // Step 2: parse + insert
   try {

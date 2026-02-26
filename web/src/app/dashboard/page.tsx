@@ -142,38 +142,30 @@ function renderMarkdown(text: string): React.ReactNode {
 
 function PulsingText({ label }: { label: string }) {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      className="flex justify-start"
-    >
+    <div className="flex justify-start">
       <motion.span
-        animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+        animate={{ opacity: [0.35, 1, 0.35] }}
+        transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
         className="text-[14px] text-white/40"
       >
         {label}
       </motion.span>
-    </motion.div>
+    </div>
   );
 }
 
 function DoneBubble() {
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.18 }}
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className="flex justify-start"
     >
       <div className="inline-flex items-center gap-2">
-        <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ duration: 0.35 }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </motion.div>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 8L6.5 11.5L13 5" stroke="#10B981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
         <span className="text-[15px] font-medium" style={{ color: "#10B981" }}>Done</span>
       </div>
     </motion.div>
@@ -214,6 +206,8 @@ export default function Dashboard() {
   const respondingIdRef = useRef<string | null>(null);
   const workingIdRef = useRef<string | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingDisplayTextRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const manualStopRef = useRef(false);
   const studioTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -427,6 +421,25 @@ export default function Dashboard() {
     const token = localStorage.getItem("bloxr_sync_token");
     let fullText = "";
 
+    // Batch text DOM updates at 60fps max via requestAnimationFrame
+    const scheduleTextUpdate = (displayText: string) => {
+      pendingDisplayTextRef.current = displayText;
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          const t = pendingDisplayTextRef.current;
+          pendingDisplayTextRef.current = null;
+          if (t !== null && respondingIdRef.current) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === respondingIdRef.current ? { ...m, text: t } : m
+              )
+            );
+          }
+        });
+      }
+    };
+
     // Setup abort controller + rolling 30s timeout
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -500,11 +513,7 @@ export default function Dashboard() {
                 ]);
               }
             } else {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === respondingIdRef.current ? { ...m, text: displayText } : m
-                )
-              );
+              scheduleTextUpdate(displayText);
             }
           }
 
@@ -520,12 +529,11 @@ export default function Dashboard() {
               const capturedWId = workingIdRef.current;
               if (capturedWId) {
                 workingIdRef.current = null;
-                setMessages((prev) =>
-                  prev.map((m) => m.id === capturedWId
-                    ? { ...m, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" }
-                    : m
-                  )
-                );
+                const errId = crypto.randomUUID();
+                setMessages((prev) => [
+                  ...prev.filter((m) => m.id !== capturedWId),
+                  { id: errId, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" },
+                ]);
               }
             }, 60000);
           }
@@ -533,26 +541,27 @@ export default function Dashboard() {
           if (json.codePushed !== undefined) console.log('[SSE codePushed]', json.codePushed);
 
           if (json.codePushed === true && workingIdRef.current) {
-            // ── State 4a: working → done ──
+            // ── State 4a: working → done (remove+add so AnimatePresence fades out/in) ──
             if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
             const capturedWId = workingIdRef.current;
             workingIdRef.current = null;
-            setMessages((prev) =>
-              prev.map((m) => m.id === capturedWId ? { ...m, kind: "done" } : m)
-            );
+            const doneId = crypto.randomUUID();
+            setMessages((prev) => [
+              ...prev.filter((m) => m.id !== capturedWId),
+              { id: doneId, kind: "done" },
+            ]);
           }
 
           if (json.codePushed === false && workingIdRef.current) {
-            // ── State 4b: sync failed → studio error ──
+            // ── State 4b: sync failed → studio error (remove+add) ──
             if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
             const capturedWId = workingIdRef.current;
             workingIdRef.current = null;
-            setMessages((prev) =>
-              prev.map((m) => m.id === capturedWId
-                ? { ...m, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" }
-                : m
-              )
-            );
+            const errId = crypto.randomUUID();
+            setMessages((prev) => [
+              ...prev.filter((m) => m.id !== capturedWId),
+              { id: errId, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" },
+            ]);
           }
         }
       }
@@ -583,6 +592,7 @@ export default function Dashboard() {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
+      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingDisplayTextRef.current = null; }
       readerRef.current = null;
       abortControllerRef.current = null;
 
@@ -927,47 +937,51 @@ export default function Dashboard() {
               /* ── Message list ── */
               <motion.div key="messages" className="px-8 py-8 space-y-4 max-w-[820px] mx-auto w-full">
                 <AnimatePresence initial={false}>
-                  {messages.map((msg) => (
-                    <motion.div
-                      key={msg.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.18 }}
-                    >
-                      {/* UserBubble */}
-                      {msg.kind === "user" && (
-                        <div className="flex justify-end">
-                          <div className="max-w-[60%] bg-white text-black text-[15px] rounded-2xl px-4 py-3 font-medium whitespace-pre-wrap leading-relaxed">
-                            {msg.text}
+                  {messages.map((msg) => {
+                    const isUser = msg.kind === "user";
+                    const isDone = msg.kind === "done";
+                    return (
+                      <motion.div
+                        key={msg.id}
+                        initial={isDone ? false : { opacity: 0, y: isUser ? 0 : 8, x: isUser ? 20 : 0 }}
+                        animate={{ opacity: 1, y: 0, x: 0 }}
+                        exit={{ opacity: 0, transition: { duration: 0.2 } }}
+                        transition={{ duration: isUser ? 0.2 : 0.25, ease: "easeOut" }}
+                      >
+                        {/* UserBubble */}
+                        {msg.kind === "user" && (
+                          <div className="flex justify-end">
+                            <div className="max-w-[60%] bg-white text-black text-[15px] rounded-2xl px-4 py-3 font-medium whitespace-pre-wrap leading-relaxed">
+                              {msg.text}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* ThinkingBubble */}
-                      {msg.kind === "thinking" && <PulsingText label="Thinking..." />}
+                        {/* ThinkingBubble */}
+                        {msg.kind === "thinking" && <PulsingText label="Thinking..." />}
 
-                      {/* ResponseBubble */}
-                      {msg.kind === "responding" && (
-                        <div className="flex justify-start">
-                          <div className="max-w-[640px] min-w-0 rounded-2xl px-4 py-3 text-[15px]" style={{ background: "#1c1c20" }}>
-                            {renderMarkdown(msg.text ?? "")}
+                        {/* ResponseBubble */}
+                        {msg.kind === "responding" && (
+                          <div className="flex justify-start">
+                            <div className="max-w-[640px] min-w-0 rounded-2xl px-4 py-3 text-[15px]" style={{ background: "#1c1c20" }}>
+                              {renderMarkdown(msg.text ?? "")}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* WorkingBubble */}
-                      {msg.kind === "working" && <PulsingText label="Working..." />}
+                        {/* WorkingBubble */}
+                        {msg.kind === "working" && <PulsingText label="Working..." />}
 
-                      {/* DoneBubble */}
-                      {msg.kind === "done" && <DoneBubble />}
+                        {/* DoneBubble */}
+                        {msg.kind === "done" && <DoneBubble />}
 
-                      {/* StudioError */}
-                      {msg.kind === "studio_error" && (
-                        <p className="text-[14px] text-white/40">{msg.text}</p>
-                      )}
-                    </motion.div>
-                  ))}
+                        {/* StudioError */}
+                        {msg.kind === "studio_error" && (
+                          <p className="text-[14px] text-white/40">{msg.text}</p>
+                        )}
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
                 <div ref={messagesEndRef} />
               </motion.div>
