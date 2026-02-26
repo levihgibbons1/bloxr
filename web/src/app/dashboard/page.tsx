@@ -14,7 +14,7 @@ import type { User } from "@supabase/supabase-js";
 /** UI message — the 4-state machine */
 type ChatMsg = {
   id: string;
-  kind: "user" | "thinking" | "responding" | "working" | "done";
+  kind: "user" | "thinking" | "responding" | "working" | "done" | "studio_error";
   text?: string;
 };
 
@@ -216,6 +216,7 @@ export default function Dashboard() {
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const manualStopRef = useRef(false);
+  const studioTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -471,22 +472,21 @@ export default function Dashboard() {
           const payload = line.slice(6).trim();
           if (payload === "[DONE]") break;
 
-          try {
-            const json = JSON.parse(payload) as {
-              delta?: string;
-              building?: boolean;
-              codePushed?: boolean;
-              error?: string;
-            };
+          // Parse JSON — skip only on malformed chunks, let logic errors propagate
+          let json: { delta?: string; building?: boolean; codePushed?: boolean; error?: string } | null = null;
+          try { json = JSON.parse(payload); } catch { continue; }
+          if (!json) continue;
 
-            if (json.error) throw new Error(json.error);
+          // Server-fatal error — propagate to outer catch to show in response bubble
+          if (json.error) throw new Error(json.error);
 
-            if (json.delta) {
-              fullText += json.delta;
-              const displayText = stripAllFences(fullText);
+          if (json.delta) {
+            fullText += json.delta;
+            const displayText = stripAllFences(fullText);
 
-              if (!respondingIdRef.current) {
-                // ── State 2: first chunk — swap thinking → responding ──
+            if (!respondingIdRef.current) {
+              if (displayText) {
+                // ── State 2: first non-empty text — swap thinking → responding ──
                 const rId = crypto.randomUUID();
                 respondingIdRef.current = rId;
                 const capturedTId = thinkingIdRef.current;
@@ -495,31 +495,58 @@ export default function Dashboard() {
                   ...prev.filter((m) => m.id !== capturedTId),
                   { id: rId, kind: "responding", text: displayText },
                 ]);
-              } else {
+              }
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === respondingIdRef.current ? { ...m, text: displayText } : m
+                )
+              );
+            }
+          }
+
+          if (json.building) {
+            // ── State 3: working bubble appears ──
+            const wId = crypto.randomUUID();
+            workingIdRef.current = wId;
+            setMessages((prev) => [...prev, { id: wId, kind: "working" }]);
+            // 60s timeout — if Studio never confirms, show error
+            if (studioTimeoutRef.current) clearTimeout(studioTimeoutRef.current);
+            studioTimeoutRef.current = setTimeout(() => {
+              const capturedWId = workingIdRef.current;
+              if (capturedWId) {
+                workingIdRef.current = null;
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === respondingIdRef.current ? { ...m, text: displayText } : m
+                  prev.map((m) => m.id === capturedWId
+                    ? { ...m, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" }
+                    : m
                   )
                 );
               }
-            }
+            }, 60000);
+          }
 
-            if (json.building) {
-              // ── State 3: working bubble appears ──
-              const wId = crypto.randomUUID();
-              workingIdRef.current = wId;
-              setMessages((prev) => [...prev, { id: wId, kind: "working" }]);
-            }
+          if (json.codePushed === true && workingIdRef.current) {
+            // ── State 4a: working → done ──
+            if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
+            const capturedWId = workingIdRef.current;
+            workingIdRef.current = null;
+            setMessages((prev) =>
+              prev.map((m) => m.id === capturedWId ? { ...m, kind: "done" } : m)
+            );
+          }
 
-            if (json.codePushed && workingIdRef.current) {
-              // ── State 4: working → done ──
-              const capturedWId = workingIdRef.current;
-              setMessages((prev) =>
-                prev.map((m) => m.id === capturedWId ? { ...m, kind: "done" } : m)
-              );
-            }
-          } catch {
-            // Malformed SSE chunk — skip
+          if (json.codePushed === false && workingIdRef.current) {
+            // ── State 4b: sync failed → studio error ──
+            if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
+            const capturedWId = workingIdRef.current;
+            workingIdRef.current = null;
+            setMessages((prev) =>
+              prev.map((m) => m.id === capturedWId
+                ? { ...m, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" }
+                : m
+              )
+            );
           }
         }
       }
@@ -549,6 +576,7 @@ export default function Dashboard() {
       }
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
       readerRef.current = null;
       abortControllerRef.current = null;
 
@@ -556,18 +584,25 @@ export default function Dashboard() {
       const chatId = activeChatIdRef.current;
       const capturedRId = respondingIdRef.current;
       const capturedTId = thinkingIdRef.current;
+      const capturedWId = workingIdRef.current; // still set if stream ended before codePushed
 
-      // Finalize: remove any lingering thinking bubble, strip fences from responding text
+      // Finalize: drop transient bubbles, strip fences, handle stuck working
       let capturedFinal: ChatMsg[] = [];
       setMessages((prev) => {
         const updated = prev
           .filter((m) => m.id !== capturedTId)
-          .map((m) => m.id === capturedRId ? { ...m, text: finalText } : m);
+          .filter((m) => !(m.id === capturedRId && !finalText)) // drop empty responding bubble
+          .map((m) => {
+            if (m.id === capturedRId && finalText) return { ...m, text: finalText };
+            if (m.id === capturedWId) return { ...m, kind: "studio_error" as const, text: "Couldn't reach Studio — is the plugin running?" };
+            return m;
+          });
         capturedFinal = updated;
         return updated;
       });
 
       thinkingIdRef.current = null;
+      workingIdRef.current = null;
       setIsStreaming(false);
 
       setConversationHistory((prev) => [
@@ -920,6 +955,11 @@ export default function Dashboard() {
 
                       {/* DoneBubble */}
                       {msg.kind === "done" && <DoneBubble />}
+
+                      {/* StudioError */}
+                      {msg.kind === "studio_error" && (
+                        <p className="text-[14px] text-white/40">{msg.text}</p>
+                      )}
                     </motion.div>
                   ))}
                 </AnimatePresence>
