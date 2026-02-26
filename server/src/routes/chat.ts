@@ -154,6 +154,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         }
       } catch (parseErr) {
         console.error("[chat] JSON parse failed:", parseErr, "\nRaw block:", jsonMatch[1].trim());
+        res.write(`data: ${JSON.stringify({ codePushed: false })}\n\n`);
+        (res as unknown as { flush?: () => void }).flush?.();
       }
     }
 
