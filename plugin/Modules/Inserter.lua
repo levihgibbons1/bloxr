@@ -1,121 +1,120 @@
---[[
-  ServerStorage.BloxrPlugin.Modules.Inserter
-  Handles inserting scripts and parts into the game from sync_queue payloads.
---]]
-
+local CollectionService = game:GetService("CollectionService")
 local Inserter = {}
 
--- Insert a Luau script into the appropriate Roblox service.
-function Inserter.insertScript(payload)
-	local serviceName = payload.targetService
-	if not serviceName then
-		warn("[Bloxr] insertScript: missing targetService")
-		return
-	end
+local TAG = "BloxrGenerated"
 
-	local targetService = game:GetService(serviceName)
-	if not targetService then
-		warn("[Bloxr] insertScript: could not find service '" .. tostring(serviceName) .. "'")
-		return
-	end
+-- Last built indicator (item 20)
+local lastBuilt = { name = "", service = "" }
 
-	local scriptTypeMap = {
-		Script = "Script",
-		LocalScript = "LocalScript",
-		ModuleScript = "ModuleScript",
-	}
-
-	local className = scriptTypeMap[payload.scriptType] or "Script"
-	local instance = Instance.new(className)
-	instance.Name = payload.name or "BloxrScript"
-	instance.Source = payload.code or ""
-	instance.Parent = targetService
-
-	print("[Bloxr] ✓ Inserted " .. className .. " '" .. instance.Name .. "' into " .. targetService.Name)
+function Inserter.getLastBuilt()
+	return lastBuilt
 end
 
--- Insert a simple 3D part into Workspace from a "part" payload.
-function Inserter.insertPart(payload)
-	local className = payload.className or "Part"
+local function getService(name)
+	return game:GetService(name)
+end
 
-	local ok, instance = pcall(Instance.new, className)
+local function tagInstance(inst, promptId)
+	CollectionService:AddTag(inst, TAG)
+	if promptId and promptId ~= "" then
+		CollectionService:AddTag(inst, "BloxrPrompt_" .. promptId)
+	end
+end
+
+function Inserter.insertScript(payload)
+	local scriptType    = payload.scriptType    or "Script"
+	local targetService = payload.targetService or "ServerScriptService"
+	local code          = payload.code          or "-- Empty script"
+	local name          = payload.name          or "BloxrScript"
+	local promptId      = payload.id            or ""
+
+	local inst = Instance.new(scriptType)
+	inst.Name   = name
+	inst.Source = code
+
+	local ok, err = pcall(function()
+		inst.Parent = getService(targetService)
+	end)
+
 	if not ok then
-		warn("[Bloxr] insertPart: unknown className '" .. tostring(className) .. "'")
-		return
+		inst.Parent = getService("ServerScriptService")
+		targetService = "ServerScriptService"
+		warn("[Bloxr] Could not place in " .. (payload.targetService or "") .. ", fallback to ServerScriptService:", err)
 	end
 
-	instance.Name = payload.name or "BloxrPart"
+	tagInstance(inst, promptId)
+	lastBuilt = { name = name, service = targetService }
+	print("[Bloxr] ✓ Done — '" .. name .. "' added to " .. targetService)
+	return inst
+end
 
-	local props = payload.properties or {}
+function Inserter.insertPart(payload)
+	local name      = payload.name      or "BloxrPart"
+	local className = payload.className or "Part"
+	local props     = payload.properties or {}
+	local promptId  = payload.id        or ""
+
+	local inst = Instance.new(className)
+	inst.Name = name
 
 	-- BrickColor
 	if props.BrickColor then
-		local colorOk, color = pcall(BrickColor.new, props.BrickColor)
-		if colorOk then
-			instance.BrickColor = color
-		end
+		local ok, color = pcall(BrickColor.new, props.BrickColor)
+		if ok then inst.BrickColor = color end
 	end
 
-	-- Size — expects [x, y, z] array
-	if props.Size then
+	-- Size
+	if props.Size and type(props.Size) == "table" then
 		local s = props.Size
-		instance.Size = Vector3.new(s[1] or 4, s[2] or 1, s[3] or 2)
+		pcall(function() inst.Size = Vector3.new(s[1] or 4, s[2] or 1, s[3] or 2) end)
 	end
 
-	-- Position — expects [x, y, z] array
-	if props.Position then
+	-- Position
+	if props.Position and type(props.Position) == "table" then
 		local p = props.Position
-		instance.Position = Vector3.new(p[1] or 0, p[2] or 10, p[3] or 0)
+		pcall(function() inst.Position = Vector3.new(p[1] or 0, p[2] or 1, p[3] or 0) end)
 	end
 
-	-- Anchored
-	if props.Anchored ~= nil then
-		instance.Anchored = props.Anchored
-	end
-
-	-- Material — e.g. "SmoothPlastic", "Neon", "Wood"
+	-- Material — use Enum.Material[val] (item 19)
 	if props.Material then
-		local matOk, mat = pcall(function()
-			return Enum.Material[props.Material]
+		pcall(function()
+			local mat = Enum.Material[props.Material]
+			if mat then inst.Material = mat end
 		end)
-		if matOk and mat then
-			instance.Material = mat
-		end
 	end
 
-	-- Shape (Part only) — e.g. "Ball", "Cylinder", "Block"
+	-- Shape (Part only)
 	if props.Shape and className == "Part" then
-		local shapeOk, shape = pcall(function()
-			return Enum.PartType[props.Shape]
+		pcall(function()
+			local shape = Enum.PartType[props.Shape]
+			if shape then inst.Shape = shape end
 		end)
-		if shapeOk and shape then
-			instance.Shape = shape
+	end
+
+	-- All other properties — silent pcall
+	local handled = { BrickColor=true, Size=true, Position=true, Material=true, Shape=true }
+	for prop, val in pairs(props) do
+		if not handled[prop] then
+			pcall(function() inst[prop] = val end)
 		end
 	end
 
-	-- CastShadow
-	if props.CastShadow ~= nil then
-		instance.CastShadow = props.CastShadow
-	end
-
-	-- CanCollide
-	if props.CanCollide ~= nil then
-		instance.CanCollide = props.CanCollide
-	end
-
-	instance.Parent = game.Workspace
-
-	print("[Bloxr] ✓ Inserted part '" .. instance.Name .. "' (" .. className .. ") into Workspace")
+	inst.Parent = workspace
+	tagInstance(inst, promptId)
+	lastBuilt = { name = name, service = "Workspace" }
+	print("[Bloxr] ✓ Done — '" .. name .. "' placed in Workspace")
+	return inst
 end
 
--- Route a sync_queue payload to the correct insert function.
 function Inserter.handle(payload)
-	if payload.type == "script" then
-		Inserter.insertScript(payload)
-	elseif payload.type == "part" then
-		Inserter.insertPart(payload)
+	if not payload or not payload.type then return end
+	local t = payload.type
+	if t == "script" then
+		return Inserter.insertScript(payload)
+	elseif t == "part" then
+		return Inserter.insertPart(payload)
 	else
-		warn("[Bloxr] Inserter.handle: unknown payload type '" .. tostring(payload.type) .. "'")
+		warn("[Bloxr] Unknown payload type:", t)
 	end
 end
 
