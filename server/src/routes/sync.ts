@@ -4,8 +4,26 @@ import { supabase } from "../lib/supabase";
 
 const router = Router();
 
+// ── In-memory stores ──────────────────────────────────────────────────────────
+
+const contextStore = new Map<string, string[]>();
+const errorStore = new Map<string, { message: string; script: string; line: number }>();
+
+export function getContext(userId: string): string[] {
+  return contextStore.get(userId) ?? [];
+}
+
+export function getLastError(userId: string) {
+  return errorStore.get(userId) ?? null;
+}
+
+export function clearError(userId: string) {
+  errorStore.delete(userId);
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
 // GET /api/sync/pending
-// Returns the oldest pending item in the queue for the authenticated user, or null if empty.
 router.get("/pending", async (_req: Request, res: Response) => {
   const userId: string = res.locals.userId;
   const { data, error } = await supabase
@@ -21,11 +39,18 @@ router.get("/pending", async (_req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to fetch pending item" });
     return;
   }
+
+  const lastError = getLastError(userId);
+  if (lastError) {
+    clearError(userId);
+    res.json({ ...(data ?? null), lastError });
+    return;
+  }
+
   res.json(data ?? null);
 });
 
 // POST /api/sync/push
-// Adds a payload to the queue and returns the created item.
 router.post("/push", async (req: Request, res: Response) => {
   const userId: string = res.locals.userId;
   const id = crypto.randomUUID();
@@ -44,7 +69,6 @@ router.post("/push", async (req: Request, res: Response) => {
 });
 
 // POST /api/sync/confirm
-// Removes the item with the given id from the queue.
 router.post("/confirm", async (req: Request, res: Response) => {
   const { id } = req.body as { id?: string };
   if (!id) {
@@ -68,32 +92,64 @@ router.post("/confirm", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// POST /api/sync/error
-// Logs the error payload to the console and marks the item as errored.
+// POST /api/sync/error — store latest error per user
 router.post("/error", async (req: Request, res: Response) => {
-  console.error("[sync/error]", req.body);
-  const { id } = req.body as { id?: string };
-  if (id) {
-    await supabase
-      .from("sync_queue")
-      .update({ status: "error" })
-      .eq("id", id);
+  const userId: string = res.locals.userId;
+  const { message, script, line } = req.body as {
+    message?: string;
+    script?: string;
+    line?: number;
+  };
+
+  if (message && script !== undefined && line !== undefined) {
+    errorStore.set(userId, {
+      message: String(message),
+      script: String(script),
+      line: Number(line),
+    });
   }
+
+  console.error("[sync/error] user=%s script=%s:%s — %s", userId, script, line, message);
   res.json({ ok: true });
 });
 
 // GET /api/sync/heartbeat
-// Returns a simple status check with the current timestamp.
-router.get("/heartbeat", (_req: Request, res: Response) => {
-  res.json({ status: "ok", timestamp: Date.now() });
+router.get("/heartbeat", (req: Request, res: Response) => {
+  const userId: string = res.locals.userId;
+  const lastError = getLastError(userId);
+  if (lastError) {
+    clearError(userId);
+    res.json({ status: "ok", timestamp: Date.now(), lastError });
+  } else {
+    res.json({ status: "ok", timestamp: Date.now() });
+  }
 });
 
 // POST /api/sync/place
-// Logs the placeId and gameId to the console.
 router.post("/place", (req: Request, res: Response) => {
   const { placeId, gameId } = req.body as { placeId?: unknown; gameId?: unknown };
   console.log("[sync/place] placeId=%s gameId=%s", placeId, gameId);
   res.json({ ok: true });
+});
+
+// POST /api/sync/context
+router.post("/context", (req: Request, res: Response) => {
+  const userId: string = res.locals.userId;
+  const { context } = req.body as { context?: string[] };
+
+  if (!Array.isArray(context)) {
+    res.status(400).json({ error: "context must be an array of strings" });
+    return;
+  }
+
+  contextStore.set(userId, context);
+  res.json({ ok: true });
+});
+
+// GET /api/sync/context
+router.get("/context", (req: Request, res: Response) => {
+  const userId: string = res.locals.userId;
+  res.json({ context: getContext(userId) });
 });
 
 export default router;
