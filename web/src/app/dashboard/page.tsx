@@ -11,10 +11,10 @@ import type { User } from "@supabase/supabase-js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-/** UI message — the 4-state machine */
+/** UI message — the 5-state machine */
 type ChatMsg = {
   id: string;
-  kind: "user" | "thinking" | "responding" | "working" | "done" | "studio_error";
+  kind: "user" | "thinking" | "responding" | "working" | "done" | "error";
   text?: string;
 };
 
@@ -144,7 +144,7 @@ function PulsingText({ label }: { label: string }) {
   return (
     <div className="flex justify-start">
       <motion.span
-        animate={{ opacity: [0.35, 1, 0.35] }}
+        animate={{ opacity: [0.3, 1, 0.3] }}
         transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
         className="text-[14px] text-white/40"
       >
@@ -186,7 +186,6 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
-  const [attachments, setAttachments] = useState<string[]>([]);
 
   // ── Chats & projects state ──
   const [chats, setChats] = useState<DbChat[]>([]);
@@ -206,14 +205,11 @@ export default function Dashboard() {
   const respondingIdRef = useRef<string | null>(null);
   const workingIdRef = useRef<string | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const pendingDisplayTextRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const manualStopRef = useRef(false);
   const studioTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const router = useRouter();
@@ -280,7 +276,7 @@ export default function Dashboard() {
           if (kind === "user" || kind === "responding") {
             return { id: (msg.id as string) || crypto.randomUUID(), kind, text: (msg.text as string) || "" };
           }
-          return null; // discard transient kinds (thinking/working/done)
+          return null; // discard transient kinds (thinking/working/done/error)
         }
         // Legacy format: { role: "user"|"ai", text }
         if (msg.role === "user") return { id: crypto.randomUUID(), kind: "user", text: (msg.text as string) || "" };
@@ -304,8 +300,18 @@ export default function Dashboard() {
     setRenamingChatId(null);
   }, []);
 
-  const loadChat = useCallback((chat: DbChat) => {
-    const chatMsgs = dbMsgsToChat(chat.messages);
+  const loadChat = useCallback(async (chat: DbChat) => {
+    let chatMsgs: ChatMsg[];
+    if (supabase) {
+      try {
+        const { data } = await supabase.from("chats").select("*").eq("id", chat.id).single();
+        chatMsgs = data ? dbMsgsToChat((data as DbChat).messages) : dbMsgsToChat(chat.messages);
+      } catch {
+        chatMsgs = dbMsgsToChat(chat.messages);
+      }
+    } else {
+      chatMsgs = dbMsgsToChat(chat.messages);
+    }
     setMessages(chatMsgs);
     setActiveChatId(chat.id);
     activeChatIdRef.current = chat.id;
@@ -319,7 +325,7 @@ export default function Dashboard() {
       else if (msg.kind === "responding" && msg.text) history.push({ role: "assistant", content: msg.text });
     }
     setConversationHistory(history);
-  }, []);
+  }, [supabase]);
 
   const startRenameChat = useCallback((chat: DbChat, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -378,7 +384,7 @@ export default function Dashboard() {
     readerRef.current?.cancel().catch(() => {});
   }, []);
 
-  // ── Send handler (new clean state machine) ───────────────────────────────
+  // ── Send handler (buffered — no streaming to UI) ──────────────────────────
 
   const handleSend = async (textOverride?: string) => {
     const text = (textOverride ?? input).trim();
@@ -420,25 +426,7 @@ export default function Dashboard() {
 
     const token = localStorage.getItem("bloxr_sync_token");
     let fullText = "";
-
-    // Batch text DOM updates at 60fps max via requestAnimationFrame
-    const scheduleTextUpdate = (displayText: string) => {
-      pendingDisplayTextRef.current = displayText;
-      if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(() => {
-          rafRef.current = null;
-          const t = pendingDisplayTextRef.current;
-          pendingDisplayTextRef.current = null;
-          if (t !== null && respondingIdRef.current) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === respondingIdRef.current ? { ...m, text: t } : m
-              )
-            );
-          }
-        });
-      }
-    };
+    let hasResponded = false;
 
     // Setup abort controller + rolling 30s timeout
     const abortController = new AbortController();
@@ -449,6 +437,25 @@ export default function Dashboard() {
     const resetChunkTimeout = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => abortController.abort(), 30000);
+    };
+
+    // Show full buffered response — called once when deltas are done
+    const showResponse = () => {
+      if (hasResponded) return;
+      hasResponded = true;
+      const displayText = stripAllFences(fullText);
+      const capturedTId = thinkingIdRef.current;
+      thinkingIdRef.current = null;
+      if (displayText) {
+        const rId = crypto.randomUUID();
+        respondingIdRef.current = rId;
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== capturedTId),
+          { id: rId, kind: "responding", text: displayText },
+        ]);
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== capturedTId));
+      }
     };
 
     try {
@@ -462,7 +469,7 @@ export default function Dashboard() {
         signal: abortController.signal,
       });
 
-      if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`);
+      if (!res.ok || !res.body) throw new Error("Connection error — check your internet and try again");
 
       const reader = res.body.getReader();
       readerRef.current = reader;
@@ -483,43 +490,29 @@ export default function Dashboard() {
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const payload = line.slice(6).trim();
-          if (payload === "[DONE]") break;
+          if (payload === "[DONE]") {
+            // Stream done — show full buffered text if not already shown
+            showResponse();
+            break;
+          }
 
-          // Parse JSON — skip only on malformed chunks, let logic errors propagate
           let json: { delta?: string; building?: boolean; codePushed?: boolean; error?: string } | null = null;
           try { json = JSON.parse(payload); } catch { continue; }
           if (!json) continue;
 
           console.log('[SSE received]', json);
 
-          // Server-fatal error — propagate to outer catch to show in response bubble
           if (json.error) throw new Error(json.error);
 
           if (json.delta) {
-            console.log('[SSE delta]', json.delta?.slice(0, 20));
+            // Accumulate silently — no UI update while thinking
             fullText += json.delta;
-            const displayText = stripAllFences(fullText);
-
-            if (!respondingIdRef.current) {
-              if (displayText) {
-                // ── State 2: first non-empty text — swap thinking → responding ──
-                const rId = crypto.randomUUID();
-                respondingIdRef.current = rId;
-                const capturedTId = thinkingIdRef.current;
-                thinkingIdRef.current = null;
-                setMessages((prev) => [
-                  ...prev.filter((m) => m.id !== capturedTId),
-                  { id: rId, kind: "responding", text: displayText },
-                ]);
-              }
-            } else {
-              scheduleTextUpdate(displayText);
-            }
           }
 
           if (json.building) {
             console.log('[SSE building]');
-            // ── State 3: working bubble appears ──
+            // Show full buffered response, then add working bubble
+            showResponse();
             const wId = crypto.randomUUID();
             workingIdRef.current = wId;
             setMessages((prev) => [...prev, { id: wId, kind: "working" }]);
@@ -532,16 +525,14 @@ export default function Dashboard() {
                 const errId = crypto.randomUUID();
                 setMessages((prev) => [
                   ...prev.filter((m) => m.id !== capturedWId),
-                  { id: errId, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" },
+                  { id: errId, kind: "error", text: "Couldn't reach Studio — is the plugin running?" },
                 ]);
               }
             }, 60000);
           }
 
-          if (json.codePushed !== undefined) console.log('[SSE codePushed]', json.codePushed);
-
           if (json.codePushed === true && workingIdRef.current) {
-            // ── State 4a: working → done (remove+add so AnimatePresence fades out/in) ──
+            console.log('[SSE codePushed] true');
             if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
             const capturedWId = workingIdRef.current;
             workingIdRef.current = null;
@@ -553,14 +544,14 @@ export default function Dashboard() {
           }
 
           if (json.codePushed === false && workingIdRef.current) {
-            // ── State 4b: sync failed → studio error (remove+add) ──
+            console.log('[SSE codePushed] false');
             if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
             const capturedWId = workingIdRef.current;
             workingIdRef.current = null;
             const errId = crypto.randomUUID();
             setMessages((prev) => [
               ...prev.filter((m) => m.id !== capturedWId),
-              { id: errId, kind: "studio_error", text: "Couldn't reach Studio — is the plugin running?" },
+              { id: errId, kind: "error", text: "Couldn't reach Studio — is the plugin running?" },
             ]);
           }
         }
@@ -568,31 +559,23 @@ export default function Dashboard() {
     } catch (err) {
       const isAbort = err instanceof Error && err.name === "AbortError";
       if (isAbort && manualStopRef.current) {
-        // User clicked stop — keep whatever streamed, no error shown
+        // User clicked stop — show whatever was buffered
+        showResponse();
       } else {
         const errText = isAbort
-          ? "Something went wrong — try again"
-          : err instanceof Error ? err.message : "Something went wrong.";
-        fullText = errText;
-        if (!respondingIdRef.current) {
-          const rId = crypto.randomUUID();
-          respondingIdRef.current = rId;
-          const capturedTId = thinkingIdRef.current;
-          thinkingIdRef.current = null;
-          setMessages((prev) => [
-            ...prev.filter((m) => m.id !== capturedTId),
-            { id: rId, kind: "responding", text: errText },
-          ]);
-        } else {
-          setMessages((prev) =>
-            prev.map((m) => m.id === respondingIdRef.current ? { ...m, text: errText } : m)
-          );
-        }
+          ? "Timed out — try again"
+          : err instanceof Error ? err.message : "Connection error — check your internet and try again";
+        const capturedTId = thinkingIdRef.current;
+        thinkingIdRef.current = null;
+        const errId = crypto.randomUUID();
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== capturedTId),
+          { id: errId, kind: "error", text: errText },
+        ]);
       }
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       if (studioTimeoutRef.current) { clearTimeout(studioTimeoutRef.current); studioTimeoutRef.current = null; }
-      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; pendingDisplayTextRef.current = null; }
       readerRef.current = null;
       abortControllerRef.current = null;
 
@@ -610,7 +593,7 @@ export default function Dashboard() {
           .filter((m) => !(m.id === capturedRId && !finalText)) // drop empty responding bubble
           .map((m) => {
             if (m.id === capturedRId && finalText) return { ...m, text: finalText };
-            if (m.id === capturedWId) return { ...m, kind: "studio_error" as const, text: "Couldn't reach Studio — is the plugin running?" };
+            if (m.id === capturedWId) return { ...m, kind: "error" as const, text: "Couldn't reach Studio — is the plugin running?" };
             return m;
           });
         capturedFinal = updated;
@@ -658,16 +641,6 @@ export default function Dashboard() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    setAttachments((prev) => [...prev, ...files.map((f) => f.name)]);
-    e.target.value = "";
-  }, []);
-
-  const removeAttachment = useCallback((i: number) => {
-    setAttachments((prev) => prev.filter((_, idx) => idx !== i));
-  }, []);
 
   // ── Derived ──────────────────────────────────────────────────────────────
 
@@ -889,7 +862,6 @@ export default function Dashboard() {
             <p className="text-white text-[14px] font-semibold truncate max-w-[400px]">
               {activeChat ? activeChat.title : "Chat"}
             </p>
-            <p className="text-white/30 text-[12px]">Powered by Bloxr</p>
           </div>
           <div className="flex items-center gap-3">
             {connected && (
@@ -946,7 +918,7 @@ export default function Dashboard() {
                         initial={isDone ? false : { opacity: 0, y: isUser ? 0 : 8, x: isUser ? 20 : 0 }}
                         animate={{ opacity: 1, y: 0, x: 0 }}
                         exit={{ opacity: 0, transition: { duration: 0.2 } }}
-                        transition={{ duration: isUser ? 0.2 : 0.25, ease: "easeOut" }}
+                        transition={{ duration: isUser ? 0.2 : 0.4, ease: "easeOut" }}
                       >
                         {/* UserBubble */}
                         {msg.kind === "user" && (
@@ -960,7 +932,7 @@ export default function Dashboard() {
                         {/* ThinkingBubble */}
                         {msg.kind === "thinking" && <PulsingText label="Thinking..." />}
 
-                        {/* ResponseBubble */}
+                        {/* ResponseBubble — fades in all at once */}
                         {msg.kind === "responding" && (
                           <div className="flex justify-start">
                             <div className="max-w-[640px] min-w-0 rounded-2xl px-4 py-3 text-[15px]" style={{ background: "#1c1c20" }}>
@@ -970,13 +942,13 @@ export default function Dashboard() {
                         )}
 
                         {/* WorkingBubble */}
-                        {msg.kind === "working" && <PulsingText label="Working..." />}
+                        {msg.kind === "working" && <PulsingText label="Building..." />}
 
                         {/* DoneBubble */}
                         {msg.kind === "done" && <DoneBubble />}
 
-                        {/* StudioError */}
-                        {msg.kind === "studio_error" && (
+                        {/* ErrorBubble */}
+                        {msg.kind === "error" && (
                           <p className="text-[14px] text-white/40">{msg.text}</p>
                         )}
                       </motion.div>
@@ -993,29 +965,7 @@ export default function Dashboard() {
         {/* ── Input ── */}
         <div className="px-6 pb-5 pt-3 shrink-0">
           <div className="rounded-2xl border border-white/[0.08] focus-within:border-white/[0.14] transition-colors duration-200" style={{ background: "#111" }}>
-
-            {/* Attachment chips */}
-            <AnimatePresence>
-              {attachments.length > 0 && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="flex flex-wrap gap-2 px-4 pt-3">
-                  {attachments.map((name, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] text-[12px] text-white/50">
-                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="2" y="1" width="12" height="14" rx="2" stroke="currentColor" strokeWidth="1.3" /><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
-                      <span className="max-w-[140px] truncate">{name}</span>
-                      <button onClick={() => removeAttachment(i)} className="text-white/20 hover:text-white/60 transition-colors ml-0.5">
-                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
-                      </button>
-                    </motion.div>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             <div className="flex items-end gap-2.5 px-3 pt-3 pb-3">
-              <input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt,.lua,.rbxl,.rbxlx" multiple className="hidden" onChange={handleFileChange} />
-              <button onClick={() => fileInputRef.current?.click()} className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border border-white/[0.08] hover:border-white/[0.18] hover:bg-white/[0.05] text-white/30 hover:text-white/70 transition-all duration-200">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-              </button>
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -1091,7 +1041,7 @@ function ChatRow({
             className="flex-1 min-w-0 bg-transparent text-[13px] text-white outline-none border-b border-white/25"
           />
         ) : (
-          <span className="flex-1 min-w-0 text-[13px] truncate">{chat.title}</span>
+          <span className="flex-1 min-w-0 text-[13px] truncate overflow-hidden text-ellipsis">{chat.title}</span>
         )}
       </button>
       {!isRenaming && (
