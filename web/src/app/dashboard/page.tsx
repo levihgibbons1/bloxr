@@ -477,10 +477,13 @@ export default function Dashboard() {
           try { json = JSON.parse(payload); } catch { continue; }
           if (!json) continue;
 
+          console.log('[SSE received]', json);
+
           // Server-fatal error — propagate to outer catch to show in response bubble
           if (json.error) throw new Error(json.error);
 
           if (json.delta) {
+            console.log('[SSE delta]', json.delta?.slice(0, 20));
             fullText += json.delta;
             const displayText = stripAllFences(fullText);
 
@@ -506,6 +509,7 @@ export default function Dashboard() {
           }
 
           if (json.building) {
+            console.log('[SSE building]');
             // ── State 3: working bubble appears ──
             const wId = crypto.randomUUID();
             workingIdRef.current = wId;
@@ -525,6 +529,8 @@ export default function Dashboard() {
               }
             }, 60000);
           }
+
+          if (json.codePushed !== undefined) console.log('[SSE codePushed]', json.codePushed);
 
           if (json.codePushed === true && workingIdRef.current) {
             // ── State 4a: working → done ──
