@@ -94,6 +94,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         const delta = chunk.delta.text;
         fullText += delta;
         res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+        (res as unknown as { flush?: () => void }).flush?.();
       }
     }
 
@@ -108,6 +109,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       console.log("[chat] JSON block found:", jsonMatch[1].trim());
       // Signal to client that we're about to insert
       res.write(`data: ${JSON.stringify({ building: true })}\n\n`);
+      (res as unknown as { flush?: () => void }).flush?.();
       try {
         const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>;
 
@@ -146,6 +148,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         } else {
           console.log("[chat] sync_queue insert succeeded — id:", id);
           res.write(`data: ${JSON.stringify({ codePushed: true })}\n\n`);
+          (res as unknown as { flush?: () => void }).flush?.();
         }
       } catch (parseErr) {
         console.error("[chat] JSON parse failed:", parseErr, "\nRaw block:", jsonMatch[1].trim());
