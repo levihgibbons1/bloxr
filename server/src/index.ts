@@ -13,11 +13,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({
-  origin: function(origin, callback) {
+  origin: function (origin, callback) {
     const allowed = [
       'https://www.bloxr.dev',
       'https://bloxr.dev',
-      'http://localhost:3000'
+      'http://localhost:3000',
+      'https://dev.bloxr.dev'
     ];
     if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, true);
