@@ -308,7 +308,8 @@ export default function Dashboard() {
   // ── Chat conversion helpers ───────────────────────────────────────────────
 
   /** Convert raw DB messages (old or new format) to ChatMsg[] */
-  function dbMsgsToChat(raw: unknown[]): ChatMsg[] {
+  function dbMsgsToChat(raw: unknown[] | null | undefined): ChatMsg[] {
+    if (!raw || !Array.isArray(raw)) return [];
     return raw
       .map((m): ChatMsg | null => {
         const msg = m as Record<string, unknown>;
@@ -346,13 +347,18 @@ export default function Dashboard() {
     if (supabase) {
       try {
         const { data, error } = await supabase.from("chats").select("*").eq("id", chat.id).single();
-        if (error || !data) throw new Error("fetch failed");
+        console.log("[loadChat] supabase response — error:", error, "data:", data);
+        console.log("[loadChat] messages field:", (data as DbChat | null)?.messages);
+        if (error || !data) throw new Error("fetch failed: " + error?.message);
         chatMsgs = dbMsgsToChat((data as DbChat).messages);
-      } catch {
-        // Inline error: show briefly then fall back to cached messages
+        console.log("[loadChat] parsed chatMsgs:", chatMsgs);
+      } catch (err) {
+        console.warn("[loadChat] fetch failed, falling back to cache:", err);
         chatMsgs = dbMsgsToChat(chat.messages);
+        console.log("[loadChat] cached chatMsgs:", chatMsgs);
       }
     } else {
+      console.warn("[loadChat] supabase not available, using cache");
       chatMsgs = dbMsgsToChat(chat.messages);
     }
 
@@ -1045,9 +1051,9 @@ export default function Dashboard() {
         {/* ── Messages ── */}
         <div className="flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
-            {messages.length === 0 ? (
+            {messages.length === 0 && !activeChatId ? (
 
-              /* ── Empty state with suggested prompts ── */
+              /* ── Empty state: no chat selected — show suggested prompts ── */
               <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center h-full px-6 md:px-8 pb-16">
                 <div className="relative mb-8">
                   <div className="absolute inset-0 bg-[#4F8EF7]/10 rounded-full blur-[60px] scale-[2]" />
@@ -1073,6 +1079,13 @@ export default function Dashboard() {
                     </motion.button>
                   ))}
                 </div>
+              </motion.div>
+
+            ) : messages.length === 0 && activeChatId ? (
+
+              /* ── Chat selected but no messages loaded ── */
+              <motion.div key="empty-chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center justify-center h-full">
+                <p className="text-white/25 text-[14px]">No messages in this chat.</p>
               </motion.div>
 
             ) : (
