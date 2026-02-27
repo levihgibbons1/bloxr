@@ -319,8 +319,8 @@ export default function Dashboard() {
           }
           return null;
         }
-        if (msg.role === "user") return { id: crypto.randomUUID(), kind: "user", text: (msg.text as string) || "" };
-        if (msg.role === "ai") return { id: crypto.randomUUID(), kind: "responding", text: (msg.text as string) || "" };
+        if (msg.role === "user") return { id: crypto.randomUUID(), kind: "user", text: (msg.content as string) || (msg.text as string) || "" };
+        if (msg.role === "assistant" || msg.role === "ai") return { id: crypto.randomUUID(), kind: "responding", text: (msg.content as string) || (msg.text as string) || "" };
         return null;
       })
       .filter((m): m is ChatMsg => m !== null);
@@ -343,13 +343,19 @@ export default function Dashboard() {
 
   const loadChat = useCallback(async (chat: DbChat) => {
     let chatMsgs: ChatMsg[];
+    let rawHistory: ConversationMessage[] | null = null;
+
     if (supabase) {
       try {
-        const { data, error } = await supabase.from("chats").select("*").eq("id", chat.id).single();
+        const { data, error } = await supabase.from("chats").select("id, title, messages").eq("id", chat.id).single();
         if (error || !data) throw new Error("fetch failed");
-        chatMsgs = dbMsgsToChat((data as DbChat).messages);
+        const fetched = data as DbChat;
+        chatMsgs = dbMsgsToChat(fetched.messages);
+        // Rebuild conversationHistory from {role, content} pairs stored in DB
+        rawHistory = (fetched.messages as Array<Record<string, unknown>>)
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: (m.content as string) || "" }));
       } catch {
-        // Inline error: show briefly then fall back to cached messages
         chatMsgs = dbMsgsToChat(chat.messages);
       }
     } else {
@@ -365,12 +371,10 @@ export default function Dashboard() {
     setSidebarOpen(false);
     setRenamingChatId(null);
 
-    // Rebuild conversationHistory from fetched messages
-    const history: ConversationMessage[] = [];
-    for (const msg of chatMsgs) {
-      if (msg.kind === "user") history.push({ role: "user", content: msg.text ?? "" });
-      else if (msg.kind === "responding" && msg.text) history.push({ role: "assistant", content: msg.text });
-    }
+    // Use DB {role,content} pairs if available, otherwise fall back to UI messages
+    const history: ConversationMessage[] = rawHistory ?? chatMsgs
+      .filter((m) => m.kind === "user" || m.kind === "responding")
+      .map((m) => ({ role: (m.kind === "user" ? "user" : "assistant") as "user" | "assistant", content: m.text ?? "" }));
     setConversationHistory(trimHistory(history));
 
     // Scroll to bottom
@@ -677,19 +681,16 @@ export default function Dashboard() {
       const capturedTId = thinkingIdRef.current;
       const capturedWId = workingIdRef.current;
 
-      let capturedFinal: ChatMsg[] = [];
-      setMessages((prev) => {
-        const updated = prev
+      setMessages((prev) =>
+        prev
           .filter((m) => m.id !== capturedTId)
           .filter((m) => !(m.id === capturedRId && !finalText))
           .map((m) => {
             if (m.id === capturedRId && finalText) return { ...m, text: finalText };
             if (m.id === capturedWId) return { ...m, kind: "error" as const, text: "Couldn't reach Studio — is the plugin running?" };
             return m;
-          });
-        capturedFinal = updated;
-        return updated;
-      });
+          })
+      );
 
       thinkingIdRef.current = null;
       workingIdRef.current = null;
@@ -705,14 +706,16 @@ export default function Dashboard() {
 
       if (chatId && supabase) {
         const now = new Date().toISOString();
-        const saveable = capturedFinal
-          .filter((m) => m.kind === "user" || m.kind === "responding")
-          .map((m) => ({ id: m.id, kind: m.kind, text: m.text ?? "" }));
+        const newHistory = trimHistory([
+          ...conversationHistory,
+          { role: "user" as const, content: text },
+          { role: "assistant" as const, content: fullText },
+        ]);
         supabase
           .from("chats")
-          .update({ messages: saveable, updated_at: now })
+          .update({ messages: newHistory, updated_at: now })
           .eq("id", chatId)
-          .then(() => setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, messages: saveable, updated_at: now } : c)))
+          .then(() => setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, messages: newHistory, updated_at: now } : c)))
           .catch(() => {});
       }
     }
