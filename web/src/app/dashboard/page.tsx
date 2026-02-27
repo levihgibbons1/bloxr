@@ -313,15 +313,18 @@ export default function Dashboard() {
     return raw
       .map((m): ChatMsg | null => {
         const msg = m as Record<string, unknown>;
+        // Support both `text` and `content` field names
+        const text = (msg.text as string) || (msg.content as string) || "";
         if (typeof msg.kind === "string") {
           const kind = msg.kind as ChatMsg["kind"];
           if (kind === "user" || kind === "responding") {
-            return { id: (msg.id as string) || crypto.randomUUID(), kind, text: (msg.text as string) || "" };
+            return { id: (msg.id as string) || crypto.randomUUID(), kind, text };
           }
           return null;
         }
-        if (msg.role === "user") return { id: crypto.randomUUID(), kind: "user", text: (msg.text as string) || "" };
-        if (msg.role === "ai") return { id: crypto.randomUUID(), kind: "responding", text: (msg.text as string) || "" };
+        if (msg.role === "user") return { id: crypto.randomUUID(), kind: "user", text };
+        // Accept both "ai" (old internal) and "assistant" (Anthropic/Supabase convention)
+        if (msg.role === "ai" || msg.role === "assistant") return { id: crypto.randomUUID(), kind: "responding", text };
         return null;
       })
       .filter((m): m is ChatMsg => m !== null);
@@ -343,15 +346,36 @@ export default function Dashboard() {
   }, []);
 
   const loadChat = useCallback(async (chat: DbChat) => {
-    let chatMsgs: ChatMsg[];
+    let chatMsgs: ChatMsg[] = [];
     if (supabase) {
       try {
         const { data, error } = await supabase.from("chats").select("*").eq("id", chat.id).single();
-        console.log("[loadChat] supabase response — error:", error, "data:", data);
-        console.log("[loadChat] messages field:", (data as DbChat | null)?.messages);
+        console.log("[loadChat] raw error:", error);
+        console.log("[loadChat] raw data (full):", JSON.stringify(data));
         if (error || !data) throw new Error("fetch failed: " + error?.message);
-        chatMsgs = dbMsgsToChat((data as DbChat).messages);
-        console.log("[loadChat] parsed chatMsgs:", chatMsgs);
+        const rawMsgs = (data as Record<string, unknown>).messages;
+        console.log("[loadChat] messages field type:", typeof rawMsgs, "isArray:", Array.isArray(rawMsgs), "value:", JSON.stringify(rawMsgs));
+        chatMsgs = dbMsgsToChat(rawMsgs as unknown[] | null | undefined);
+        console.log("[loadChat] parsed chatMsgs from chats.messages:", chatMsgs);
+
+        // If chats.messages is empty/null, probe a separate messages table
+        if (chatMsgs.length === 0) {
+          console.log("[loadChat] chats.messages empty — probing messages table...");
+          const { data: msgRows, error: msgErr } = await supabase
+            .from("messages")
+            .select("*")
+            .eq("chat_id", chat.id)
+            .order("created_at", { ascending: true });
+          console.log("[loadChat] messages table error:", msgErr, "rows:", JSON.stringify(msgRows));
+          if (!msgErr && msgRows && (msgRows as unknown[]).length > 0) {
+            chatMsgs = (msgRows as Record<string, unknown>[]).map((m) => ({
+              id: (m.id as string) || crypto.randomUUID(),
+              kind: (m.role === "user" ? "user" : "responding") as ChatMsg["kind"],
+              text: (m.content as string) || (m.text as string) || "",
+            }));
+            console.log("[loadChat] chatMsgs from messages table:", chatMsgs);
+          }
+        }
       } catch (err) {
         console.warn("[loadChat] fetch failed, falling back to cache:", err);
         chatMsgs = dbMsgsToChat(chat.messages);
